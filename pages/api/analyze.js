@@ -45,30 +45,29 @@ export default async function handler(req, res) {
   function buildSearchQuery(input, year) {
     const yearInt = parseInt(year);
     const clean = input.trim();
-    // Check if it looks like a ticker (all caps, 1-5 letters, no spaces)
-    const isTicker = /^[A-Z]{1,5}$/.test(clean);
-
-    const periodFilter = `periodOfReport:[${year}-01-01 TO ${year}-12-31]`;
-    const filedFilter  = `filedAt:[${year}-01-01 TO ${yearInt + 1}-06-30]`;
+    // Always uppercase — handles "soun", "SOUN", "Soun" identically
+    const upper = clean.toUpperCase();
+    // Ticker: 1-5 letters only, no spaces
+    const isTicker = /^[A-Z]{1,5}$/.test(upper);
 
     if (isTicker) {
       return {
-        primary: `ticker:${clean} AND formType:"10-K" AND ${periodFilter}`,
-        fallback: `ticker:${clean} AND formType:"10-K" AND ${filedFilter}`,
+        primary:  `ticker:${upper} AND formType:"10-K" AND periodOfReport:[${year}-01-01 TO ${year}-12-31]`,
+        fallback: `ticker:${upper} AND formType:"10-K" AND filedAt:[${year}-01-01 TO ${yearInt + 1}-06-30]`,
       };
     }
 
-    // Company name — try exact phrase first, then individual words
-    const quoted = `"${clean}"`;
-    // Also try without common suffixes for broader matching
+    // Company name path
     const stripped = clean
       .replace(/\s+(Inc\.?|Corp\.?|LLC\.?|Ltd\.?|Incorporated|Corporation|Limited)$/i, "")
       .trim();
 
     return {
-      primary:   `companyName:${quoted} AND formType:"10-K" AND ${periodFilter}`,
-      fallback1: `companyName:"${stripped}" AND formType:"10-K" AND ${filedFilter}`,
-      fallback2: `companyName:${stripped.split(" ")[0]} AND formType:"10-K" AND ${filedFilter}`,
+      primary:   `companyName:"${clean}" AND formType:"10-K" AND periodOfReport:[${year}-01-01 TO ${year}-12-31]`,
+      fallback1: `companyName:"${stripped}" AND formType:"10-K" AND filedAt:[${year}-01-01 TO ${yearInt + 1}-06-30]`,
+      fallback2: `companyName:${stripped.split(" ")[0]} AND formType:"10-K" AND filedAt:[${year}-01-01 TO ${yearInt + 1}-06-30]`,
+      // Also try as ticker — covers mixed-case input like "Soun"
+      fallback3: `ticker:${upper} AND formType:"10-K" AND filedAt:[${year}-01-01 TO ${yearInt + 1}-06-30]`,
     };
   }
 
