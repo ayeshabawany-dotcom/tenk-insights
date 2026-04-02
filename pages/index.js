@@ -490,6 +490,29 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Real filing source badge */}
+            <div className="fadeup" style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:18 }}>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:7, background:"rgba(109,191,158,.08)", border:"1px solid rgba(109,191,158,.25)", borderRadius:6, padding:"5px 12px" }}>
+                <span style={{ color:"#6dbf9e", fontSize:14 }}>✓</span>
+                <span style={{ fontSize:11, color:"#6dbf9e", fontWeight:700, letterSpacing:".5px" }}>From actual SEC EDGAR filings</span>
+              </div>
+              {result.sourceA && (
+                <a href={result.sourceA} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, color:"rgba(196,151,74,.7)", border:"1px solid rgba(196,151,74,.2)", borderRadius:5, padding:"4px 10px" }}>
+                  {result.meta?.companyA} filing ↗
+                </a>
+              )}
+              {result.sourceB && (
+                <a href={result.sourceB} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, color:"rgba(122,171,207,.7)", border:"1px solid rgba(122,171,207,.2)", borderRadius:5, padding:"4px 10px" }}>
+                  {result.meta?.companyB} filing ↗
+                </a>
+              )}
+            </div>
+            {result.sourceNote && (
+              <div style={{ background:"rgba(196,151,74,.06)", border:"1px solid rgba(196,151,74,.18)", borderRadius:8, padding:"10px 16px", marginBottom:14, fontSize:12, color:"rgba(196,151,74,.8)", lineHeight:1.6 }}>
+                ⚠ {result.sourceNote}
+              </div>
+            )}
+
             {/* Key Insight */}
             {result.keyInsight && (
               <div className="fadeup d1" style={{ background:"rgba(196,151,74,.07)", border:`1px solid rgba(196,151,74,.2)`, borderLeft:`3px solid ${GOLD}`, borderRadius:10, padding:"16px 22px", marginBottom:20, display:"flex", gap:14 }}>
@@ -614,9 +637,9 @@ export default function Home() {
         {/* ── FOOTER ───────────────────────────────────────────────────────── */}
         <hr className="gold-rule" style={{ marginBottom:20 }} />
         <p style={{ fontSize:11, color:"rgba(143,163,184,.4)", lineHeight:1.85, textAlign:"center", letterSpacing:".2px" }}>
-          10-K Compare is powered by Claude AI trained on SEC EDGAR filings through early 2025. Analysis reflects AI training knowledge — not live data scraping.
-          Always verify at <a href="https://efts.sec.gov/LATEST/search-index?forms=10-K" target="_blank" rel="noopener noreferrer" style={{ color:"rgba(196,151,74,.5)" }}>SEC EDGAR</a> before making investment or business decisions.
-          Not financial advice.
+          10-K Compare fetches and parses actual 10-K filings directly from <a href="https://www.sec.gov/edgar/search/" target="_blank" rel="noopener noreferrer" style={{ color:"rgba(196,151,74,.5)" }}>SEC EDGAR</a>.
+          Claude AI reads the real filing text — it does not rely on training data recall.
+          Always review the original filing before making investment or business decisions. Not financial advice.
         </p>
       </main>
     </>
