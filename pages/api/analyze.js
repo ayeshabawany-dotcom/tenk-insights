@@ -299,35 +299,55 @@ export default async function handler(req, res) {
         if (index.length > 0) {
           // Ask Claude to pick the right note from the title list only (very small call)
           const titleList = index.map(n => `Note ${n.num}: ${n.title}`).join("\n");
-          const matchPrompt = `Which note from this list best covers the topic: "${targetNote}"?
+          const matchPrompt = `You are a technical accountant. From this list of note titles in ${companyName}'s 10-K, identify ALL notes that contain information about: "${targetNote}"
 
 ${companyName} note list:
 ${titleList}
 
-Rules:
-- The note may NOT use the exact same words as "${targetNote}"
-- "Revenue Recognition" might be in "Segment, Customers, and Geographic Information" or "Summary of Significant Accounting Policies"  
+Important context:
+- Revenue Recognition notes sometimes ONLY contain accounting policy language (how revenue is recognized)
+- The actual revenue BREAKDOWN by product/segment/geography is often in a SEPARATE note (e.g. "Segment Information", "Disaggregation of Revenue", "Geographic Information")
+- For "${targetNote}", return the primary note AND any related notes that contain actual revenue tables or breakdowns
 - "Business Combinations" might be "Acquisitions" or "Business Acquisitions and Divestitures"
-- If multiple notes are relevant, pick the most specific one
+- "Share-Based Compensation" might be "Stock-Based Compensation" or "Equity Awards"
 
-Return ONLY JSON: { "noteNumber": 15, "noteTitle": "exact title from list", "confidence": "high/medium/low" }
-If nothing matches: { "noteNumber": null, "noteTitle": null, "confidence": "low" }`;
+Return ONLY JSON:
+{
+  "primaryNote": { "noteNumber": 3, "noteTitle": "exact title" },
+  "relatedNotes": [{ "noteNumber": 15, "noteTitle": "exact title", "reason": "contains revenue breakdown tables" }],
+  "confidence": "high/medium/low"
+}
+If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "low" }`;
 
           try {
-            const matchResult = await callClaude(matchPrompt, 150);
+            const matchResult = await callClaude(matchPrompt, 300);
             const matchParsed = extractJSON(matchResult);
-            if (matchParsed.noteNumber) {
-              const matched = index.find(n => n.num === matchParsed.noteNumber);
+
+            // Support both old format {noteNumber} and new format {primaryNote, relatedNotes}
+            const primaryNum = matchParsed.primaryNote?.noteNumber ?? matchParsed.noteNumber ?? null;
+            const relatedNums = (matchParsed.relatedNotes || []).map(n => n.noteNumber).filter(Boolean);
+
+            if (primaryNum) {
+              const matched = index.find(n => n.num === Number(primaryNum));
               if (matched) {
                 resolvedTitle = matched.title;
                 noteStart = matched.startIdx;
-                // Find where next note starts to bound our extraction
                 const nextNote = index.find(n => n.num > matched.num);
                 noteEnd = nextNote ? nextNote.startIdx : matched.startIdx + 10000;
+
+                // Append related notes (e.g. segment note with revenue breakdown tables)
+                for (const relNum of relatedNums) {
+                  const rel = index.find(n => n.num === Number(relNum));
+                  if (rel && rel.num !== matched.num) {
+                    const relNext = index.find(n => n.num > rel.num);
+                    const relEnd = relNext ? relNext.startIdx : rel.startIdx + 8000;
+                    resolvedTitle += ` + Note ${rel.num}: ${rel.title}`;
+                    // Expand extraction window to include related note
+                    noteEnd = Math.max(noteEnd, Math.min(relEnd, rel.startIdx + 6000));
+                  }
+                }
               } else {
-                // Debug: log what was found and what Claude picked
-                console.log(`[DEBUG] ${companyName} index (${index.length} notes):`, index.map(n => `${n.num}:${n.title}`).join(' | '));
-                console.log(`[DEBUG] Claude picked note number:`, matchParsed.noteNumber, matchParsed.noteTitle);
+                console.log(`[DEBUG] ${companyName} index:`, index.map(n => `${n.num}:${n.title}`).join(' | '));
               }
             }
           } catch (e) {
