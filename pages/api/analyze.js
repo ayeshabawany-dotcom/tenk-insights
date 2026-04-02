@@ -146,10 +146,7 @@ export default async function handler(req, res) {
         }
         if (cells.length > 0) rows.push(cells.join(" | "));
       }
-      if (rows.length > 0) result += rows.join("
-") + "
-
-";
+      if (rows.length > 0) result += rows.join("\n") + "\n\n";
     }
     return result;
   }
@@ -160,10 +157,7 @@ export default async function handler(req, res) {
     // Step 1: Replace tables with structured text representation
     const withTables = html.replace(
       /<table[^>]*>[\s\S]*?<\/table>/gi,
-      (tableHtml) => "
-[TABLE]
-" + htmlTableToText(tableHtml) + "[/TABLE]
-"
+      (tableHtml) => "\n[TABLE]\n" + htmlTableToText(tableHtml) + "[/TABLE]\n"
     );
     // Step 2: Strip remaining HTML tags
     return withTables
@@ -176,10 +170,7 @@ export default async function handler(req, res) {
       .replace(/&gt;/g, ">")
       .replace(/&#\d+;/g, " ")
       .replace(/[ 	]{3,}/g, " ")
-      .replace(/
-{3,}/g, "
-
-")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
   }
 
