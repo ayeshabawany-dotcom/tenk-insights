@@ -335,16 +335,27 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
                 const nextNote = index.find(n => n.num > matched.num);
                 noteEnd = nextNote ? nextNote.startIdx : matched.startIdx + 10000;
 
-                // Append related notes (e.g. segment note with revenue breakdown tables)
+                // Collect related note texts separately (e.g. segment note with revenue tables)
+                // Store them for concatenation after primary extraction
+                const relatedTexts = [];
                 for (const relNum of relatedNums) {
                   const rel = index.find(n => n.num === Number(relNum));
                   if (rel && rel.num !== matched.num) {
                     const relNext = index.find(n => n.num > rel.num);
                     const relEnd = relNext ? relNext.startIdx : rel.startIdx + 8000;
-                    resolvedTitle += ` + Note ${rel.num}: ${rel.title}`;
-                    // Expand extraction window to include related note
-                    noteEnd = Math.max(noteEnd, Math.min(relEnd, rel.startIdx + 6000));
+                    const relText = fullNotes.slice(rel.startIdx, Math.min(relEnd, rel.startIdx + 6000));
+                    resolvedTitle += ` + Note ${rel.num}: ${rel.title.slice(0, 60)}`;
+                    relatedTexts.push(`\n\n=== Related: Note ${rel.num} — ${rel.title} ===\n${relText}`);
                   }
+                }
+                // Store related texts for use after extraction
+                if (relatedTexts.length > 0) {
+                  noteEnd = noteEnd; // keep primary note end as-is
+                  // Attach related texts to be appended after primary extraction
+                  return {
+                    text: fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000)) + relatedTexts.join(""),
+                    resolvedTitle
+                  };
                 }
               } else {
                 console.log(`[DEBUG] ${companyName} index:`, index.map(n => `${n.num}:${n.title}`).join(' | '));
@@ -363,7 +374,7 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
           noteEnd   = noteStart + 8000;
         }
 
-        const extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 8000));
+        const extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
         return { text: extracted, resolvedTitle };
       }
 
@@ -392,11 +403,13 @@ ${trimB}
 
 Instructions:
 - Find the relevant note section in each filing (note titles may differ between companies)
-- Compare them on 6-8 specific dimensions
+- Compare them on 8-10 specific dimensions
 - Use ONLY information present in the text above — do not invent anything
-- Tables appear between [TABLE] and [/TABLE] markers with columns separated by " | " — READ THESE for actual numbers
-- For revenue notes: extract the actual breakdown figures by product, segment, or geography from tables
+- Tables appear between [TABLE] and [/TABLE] markers with columns separated by " | " — READ THESE carefully
+- REQUIRED: If there are revenue breakdown tables (by product, segment, geography, customer type), extract ALL figures and include them as dedicated comparison rows
+- REQUIRED: Show actual dollar amounts and percentages from tables, not just policy language
 - Reference specific dollar amounts, percentages, and policy language from the actual filing text
+- Separate rows for: (1) accounting policy, (2) revenue by product/type, (3) revenue by geography, (4) revenue by customer, (5) timing of recognition — wherever data exists
 
 Respond with ONLY this JSON structure (no markdown, no text before or after):
 {
