@@ -379,6 +379,10 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
 
         let extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
 
+        // Debug: log extraction stats
+        const tableStripped = extracted.replace(/\[TABLE\][\s\S]*?\[\/TABLE\]/g, "").trim();
+        console.log(`[DEBUG] ${companyName} extracted length: ${extracted.length}, prose length: ${tableStripped.length}, noteStart: ${noteStart}, noteEnd: ${noteEnd}`);
+
         // Safeguard: if extracted text is short or table-heavy with no prose,
         // also append Note 1 (Summary of Significant Accounting Policies)
         // because many large companies embed recognition policies there
