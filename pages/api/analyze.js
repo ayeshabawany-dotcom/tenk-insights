@@ -146,9 +146,7 @@ export default async function handler(req, res) {
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
       .replace(/&#\d+;/g, " ")
-      .replace(/\s{3,}/g, "
-
-")
+      .replace(/[ \t]{3,}/g, " ").replace(/\n{3,}/g, "\n\n")
       .trim();
 
     if (!plainText || plainText.length < 1000) {
