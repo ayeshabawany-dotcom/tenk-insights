@@ -209,6 +209,7 @@ export default async function handler(req, res) {
         let noteStart = -1;
         let noteEnd = -1;
 
+        console.log(`[DEBUG] ${companyName} note index size: ${index.length}, notesStartIdx: ${notesStartIdx}, item8 length: ${item8Text.length}`);
         if (index.length > 0) {
           // Ask Claude to pick the right note from the title list only (very small call)
           const titleList = index.map(n => `Note ${n.num}: ${n.title}`).join("\n");
@@ -237,6 +238,10 @@ If nothing matches: { "noteNumber": null, "noteTitle": null, "confidence": "low"
                 // Find where next note starts to bound our extraction
                 const nextNote = index.find(n => n.num > matched.num);
                 noteEnd = nextNote ? nextNote.startIdx : matched.startIdx + 10000;
+              } else {
+                // Debug: log what was found and what Claude picked
+                console.log(`[DEBUG] ${companyName} index (${index.length} notes):`, index.map(n => `${n.num}:${n.title}`).join(' | '));
+                console.log(`[DEBUG] Claude picked note number:`, matchParsed.noteNumber, matchParsed.noteTitle);
               }
             }
           } catch (e) {
