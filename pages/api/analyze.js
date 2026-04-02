@@ -149,9 +149,123 @@ export default async function handler(req, res) {
 
       // Single Claude call: find both notes AND produce the comparison table
       // This replaces 3 sequential Claude calls with 1, cutting time by ~65%
-      // Trim Item 8 to keep total prompt manageable
-      const trimA = item8A.slice(0, 5000);
-      const trimB = item8B.slice(0, 5000);
+      // Skip the audit report — notes start AFTER the financial statements
+      // Strategy: find "NOTES TO" or "NOTE 1" which marks the start of the notes section
+      function findNotesStart(text) {
+        const markers = [
+          /NOTES TO CONSOLIDATED FINANCIAL STATEMENTS/i,
+          /NOTES TO FINANCIAL STATEMENTS/i,
+          /NOTE 1[\s\W]/i,
+          /Note 1[\s\W]/i,
+          /Notes to the Consolidated/i,
+        ];
+        for (const m of markers) {
+          const idx = text.search(m);
+          if (idx !== -1) return idx;
+        }
+        // Fallback: skip first 3000 chars (audit report area)
+        return Math.min(3000, Math.floor(text.length * 0.2));
+      }
+
+      const startA = findNotesStart(item8A);
+      const startB = findNotesStart(item8B);
+
+      // ── Note index approach — works for Meta, Google, any large filing ──────
+      // Strategy:
+      //   1. Scan full Item 8 for note headers ("NOTE 1", "Note 2 —" etc)
+      //   2. Build an index: [{num, title, startIdx}]
+      //   3. Ask Claude which note title best matches the target topic (tiny call, titles only)
+      //   4. Extract just that note's text (not the whole Item 8)
+      // This handles non-standard titles and scales to 500k-char filings.
+
+      function buildNoteIndex(text) {
+        const notes = [];
+        // Match patterns like: NOTE 1, Note 2 —, NOTE 3., 4. TITLE, NOTE FOUR
+        const headerRe = /(?:^|\n)\s{0,6}(?:NOTE\s+|Note\s+)?(\d{1,2})[.\s\-—–]+([A-Z][^\n]{4,80})/gm;
+        let m;
+        while ((m = headerRe.exec(text)) !== null) {
+          const num   = parseInt(m[1]);
+          const title = m[2].trim().replace(/\s+/g, " ");
+          if (num >= 1 && num <= 40 && title.length > 4) {
+            notes.push({ num, title, startIdx: m.index });
+          }
+        }
+        // Deduplicate by note number (keep first occurrence)
+        const seen = new Set();
+        return notes.filter(n => {
+          if (seen.has(n.num)) return false;
+          seen.add(n.num);
+          return true;
+        });
+      }
+
+      async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName) {
+        const fullNotes = item8Text.slice(notesStartIdx);
+
+        // Build note index from full notes text
+        const index = buildNoteIndex(fullNotes);
+
+        let resolvedTitle = targetNote;
+        let noteStart = -1;
+        let noteEnd = -1;
+
+        if (index.length > 0) {
+          // Ask Claude to pick the right note from the title list only (very small call)
+          const titleList = index.map(n => `Note ${n.num}: ${n.title}`).join("\n");
+          const matchPrompt = `Which note from this list best covers the topic: "${targetNote}"?
+
+${companyName} note list:
+${titleList}
+
+Rules:
+- The note may NOT use the exact same words as "${targetNote}"
+- "Revenue Recognition" might be in "Segment, Customers, and Geographic Information" or "Summary of Significant Accounting Policies"  
+- "Business Combinations" might be "Acquisitions" or "Business Acquisitions and Divestitures"
+- If multiple notes are relevant, pick the most specific one
+
+Return ONLY JSON: { "noteNumber": 15, "noteTitle": "exact title from list", "confidence": "high/medium/low" }
+If nothing matches: { "noteNumber": null, "noteTitle": null, "confidence": "low" }`;
+
+          try {
+            const matchResult = await callClaude(matchPrompt, 150);
+            const matchParsed = extractJSON(matchResult);
+            if (matchParsed.noteNumber) {
+              const matched = index.find(n => n.num === matchParsed.noteNumber);
+              if (matched) {
+                resolvedTitle = matched.title;
+                noteStart = matched.startIdx;
+                // Find where next note starts to bound our extraction
+                const nextNote = index.find(n => n.num > matched.num);
+                noteEnd = nextNote ? nextNote.startIdx : matched.startIdx + 10000;
+              }
+            }
+          } catch (e) {
+            // Fall through to keyword search below
+          }
+        }
+
+        // Fallback: keyword search across full notes text
+        if (noteStart === -1) {
+          const kw = targetNote.toLowerCase().split(/[\s&,]+/).filter(w => w.length > 4)[0] || targetNote.toLowerCase();
+          const kwIdx = fullNotes.toLowerCase().indexOf(kw);
+          noteStart = kwIdx > 0 ? Math.max(0, kwIdx - 300) : 0;
+          noteEnd   = noteStart + 8000;
+        }
+
+        const extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 8000));
+        return { text: extracted, resolvedTitle };
+      }
+
+      // Run both note extractions in parallel
+      const [extractedA, extractedB] = await Promise.all([
+        findAndExtractNote(item8A, startA, noteSection, filingA.companyName),
+        findAndExtractNote(item8B, startB, noteSection, filingB.companyName),
+      ]);
+
+      const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
+      const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
+      const resolvedTitleA = extractedA.resolvedTitle;
+      const resolvedTitleB = extractedB.resolvedTitle;
 
       const combinedPrompt = `You are a senior technical accountant. Analyze two SEC 10-K filings.
 
@@ -180,8 +294,8 @@ Respond with ONLY this JSON structure (no markdown, no text before or after):
     "yearB": "${yearB}",
     "note": "${noteSection}"
   },
-  "resolvedTitleA": "exact note title from Filing A",
-  "resolvedTitleB": "exact note title from Filing B",
+  "resolvedTitleA": "${resolvedTitleA}",
+  "resolvedTitleB": "${resolvedTitleB}",
   "rows": [
     { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
     { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
@@ -208,8 +322,8 @@ Respond with ONLY this JSON structure (no markdown, no text before or after):
         return res.status(500).json({ error: `Rows were empty. Parsed object: ${preview}` });
       }
 
-      const sourceNote = (parsed.resolvedTitleA !== noteSection || parsed.resolvedTitleB !== noteSection)
-        ? `Section names auto-resolved — ${filingA.companyName}: "${parsed.resolvedTitleA}" · ${filingB.companyName}: "${parsed.resolvedTitleB}"`
+      const sourceNote = (resolvedTitleA !== noteSection || resolvedTitleB !== noteSection)
+        ? `Section names auto-resolved — ${filingA.companyName}: "${resolvedTitleA}" · ${filingB.companyName}: "${resolvedTitleB}"`
         : null;
 
       parsed.sourceA    = filingA.url;
