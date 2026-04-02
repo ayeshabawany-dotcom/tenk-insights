@@ -8,17 +8,24 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
-  // SEC requires a descriptive User-Agent identifying your app
-  const UA = "10KInsights/1.0 (https://tenk-insights.vercel.app; contact@tenk-insights.vercel.app)";
+  // SEC EDGAR requires this exact User-Agent format: "AppName contact@email.com"
+  const UA = "TenkInsights contact@tenk-insights.vercel.app";
 
   try {
     // ── STEP 1: Resolve ticker → CIK ─────────────────────────────────────────
-    const tickersResp = await fetch(
+    // Try data.sec.gov first, fall back to www.sec.gov
+    let tickersResp = await fetch(
       "https://data.sec.gov/files/company_tickers.json",
       { headers: { "User-Agent": UA, "Accept": "application/json" } }
     );
     if (!tickersResp.ok) {
-      return res.status(502).json({ error: `SEC EDGAR returned ${tickersResp.status} on ticker lookup. Try again in a moment.` });
+      tickersResp = await fetch(
+        "https://www.sec.gov/files/company_tickers.json",
+        { headers: { "User-Agent": UA, "Accept": "application/json" } }
+      );
+    }
+    if (!tickersResp.ok) {
+      return res.status(502).json({ error: `SEC EDGAR returned ${tickersResp.status}. Please try again in a moment.` });
     }
     const tickerData = await tickersResp.json();
     const entry = Object.values(tickerData).find(e => e.ticker === sym);
