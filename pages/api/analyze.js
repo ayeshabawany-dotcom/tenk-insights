@@ -305,11 +305,14 @@ ${companyName} note list:
 ${titleList}
 
 Important context:
-- Revenue Recognition notes sometimes ONLY contain accounting policy language (how revenue is recognized)
+- Some companies have a standalone note titled exactly "${targetNote}" — use it as primary
+- BUT: that standalone note sometimes contains ONLY tables (e.g. deferred revenue schedule) with no policy language
+- In that case, also include "Summary of Significant Accounting Policies" or "Basis of Presentation" as a related note — because that is where Apple, Google and others embed their actual recognition policies
 - The actual revenue BREAKDOWN by product/segment/geography is often in a SEPARATE note (e.g. "Segment Information", "Disaggregation of Revenue", "Geographic Information")
-- For "${targetNote}", return the primary note AND any related notes that contain actual revenue tables or breakdowns
+- Always return the primary note AND any related notes that contain either (a) the actual policy text or (b) revenue breakdown tables
 - "Business Combinations" might be "Acquisitions" or "Business Acquisitions and Divestitures"
 - "Share-Based Compensation" might be "Stock-Based Compensation" or "Equity Awards"
+- If "${targetNote}" is not a standalone note at all, look inside "Summary of Significant Accounting Policies"
 
 Return ONLY JSON:
 {
@@ -374,7 +377,23 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
           noteEnd   = noteStart + 8000;
         }
 
-        const extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
+        let extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
+
+        // Safeguard: if extracted text is short or table-heavy with no prose,
+        // also append Note 1 (Summary of Significant Accounting Policies)
+        // because many large companies embed recognition policies there
+        const hasProseContent = extracted.replace(/\[TABLE\][\s\S]*?\[\/TABLE\]/g, "").trim().length > 500;
+        if (!hasProseContent && index.length > 0) {
+          const note1 = index.find(n => n.num === 1);
+          if (note1 && note1.startIdx !== noteStart) {
+            const note1Next = index.find(n => n.num > 1);
+            const note1End = note1Next ? note1Next.startIdx : note1.startIdx + 8000;
+            const note1Text = fullNotes.slice(note1.startIdx, Math.min(note1End, note1.startIdx + 6000));
+            resolvedTitle += " + Note 1: Summary of Significant Accounting Policies";
+            extracted = extracted + "\n\n=== Note 1: Summary of Significant Accounting Policies ===\n" + note1Text;
+          }
+        }
+
         return { text: extracted, resolvedTitle };
       }
 
