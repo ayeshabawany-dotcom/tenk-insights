@@ -149,23 +149,29 @@ export default async function handler(req, res) {
 
       // Single Claude call: find both notes AND produce the comparison table
       // This replaces 3 sequential Claude calls with 1, cutting time by ~65%
-      const combinedPrompt = `You are a senior technical accountant with deep expertise in SEC 10-K filings.
+      // Trim Item 8 to keep total prompt manageable
+      const trimA = item8A.slice(0, 5000);
+      const trimB = item8B.slice(0, 5000);
 
-You have been given Item 8 text from two actual 10-K annual filings. Your job is to:
-1. Find the section covering "${noteSection}" in each filing (companies use different note titles — find the best match)
-2. Compare them across 8-10 meaningful dimensions
+      const combinedPrompt = `You are a senior technical accountant. Analyze two SEC 10-K filings.
 
-DO NOT invent or add anything not present in the filing text below.
+TASK: Find the note section about "${noteSection}" in each filing, then compare them.
 
-════ FILING A: ${filingA.companyName} (${filingA.ticker || companyA}) — FY${yearA} ════
-Filed: ${filingA.filedAt?.slice(0,10)} | Period: ${filingA.period}
-${item8A.slice(0, 7000)}
+Note: Companies name notes differently. "Revenue Recognition" may be in "Segment and Revenue Information" or "Revenue from Contracts". "Business Combinations" may be "Acquisitions". Find the best match.
 
-════ FILING B: ${filingB.companyName} (${filingB.ticker || companyB}) — FY${yearB} ════  
-Filed: ${filingB.filedAt?.slice(0,10)} | Period: ${filingB.period}
-${item8B.slice(0, 7000)}
+=== FILING A: ${filingA.companyName} FY${yearA} ===
+${trimA}
 
-Return ONLY valid JSON, no markdown, nothing before or after the JSON:
+=== FILING B: ${filingB.companyName} FY${yearB} ===
+${trimB}
+
+Instructions:
+- Find the relevant note section in each filing
+- Compare them on 6-8 specific dimensions
+- Use ONLY information present in the text above
+- Reference actual numbers and specific language from the filings
+
+Respond with ONLY this JSON structure (no markdown, no text before or after):
 {
   "meta": {
     "companyA": "${filingA.companyName}",
@@ -174,22 +180,32 @@ Return ONLY valid JSON, no markdown, nothing before or after the JSON:
     "yearB": "${yearB}",
     "note": "${noteSection}"
   },
-  "resolvedTitleA": "The exact note title as it appears in Filing A",
-  "resolvedTitleB": "The exact note title as it appears in Filing B",
+  "resolvedTitleA": "exact note title from Filing A",
+  "resolvedTitleB": "exact note title from Filing B",
   "rows": [
-    { "dimension": "Key disclosure dimension", "a": "What Filing A actually says (quote specific numbers/language)", "b": "What Filing B actually says (quote specific numbers/language)" }
+    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
+    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
+    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
+    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
+    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
+    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" }
   ],
-  "summary": "2-3 sentences on the most significant differences, citing actual numbers and policy language from the filings.",
-  "keyInsight": "The single most important finding from this comparison."
+  "summary": "2-3 sentences on key differences with specific numbers.",
+  "keyInsight": "Single most important finding."
 }`;
-
-      const claudeText = await callClaude(combinedPrompt, 2000);
+      const claudeText = await callClaude(combinedPrompt, 3000);
       let parsed;
-      try { parsed = extractJSON(claudeText); }
-      catch (e) { return res.status(500).json({ error: "Could not parse comparison. Please try again." }); }
+      try {
+        parsed = extractJSON(claudeText);
+      } catch (e) {
+        // Surface raw response for debugging
+        const preview = claudeText.slice(0, 300).replace(/\n/g, " ");
+        return res.status(500).json({ error: `JSON parse failed. Claude returned: ${preview}` });
+      }
 
       if (!parsed.rows || parsed.rows.length === 0) {
-        return res.status(500).json({ error: "No comparison rows returned. Try again." });
+        const preview = JSON.stringify(parsed).slice(0, 300);
+        return res.status(500).json({ error: `Rows were empty. Parsed object: ${preview}` });
       }
 
       const sourceNote = (parsed.resolvedTitleA !== noteSection || parsed.resolvedTitleB !== noteSection)
