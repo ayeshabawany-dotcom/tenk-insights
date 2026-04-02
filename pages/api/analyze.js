@@ -4,15 +4,9 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
-  const { action, companyA, yearA, companyB, yearB, noteSection, tableData, question, conversationHistory } = req.body;
+  const { action, companyA, yearA, companyB, yearB, noteSection, tableData, question } = req.body;
 
-  // ── Helper: call Claude ────────────────────────────────────────────────────
-  async function callClaude(prompt, messages, maxTokens = 1500) {
-    const body = {
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: maxTokens,
-      messages: messages || [{ role: "user", content: prompt }],
-    };
+  async function callClaude(prompt, maxTokens = 1500) {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -20,7 +14,11 @@ export default async function handler(req, res) {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
@@ -30,181 +28,119 @@ export default async function handler(req, res) {
     return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
   }
 
+  function extractJSON(text) {
+    // Strip markdown code fences if present
+    const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    // Find first { and last }
+    const start = cleaned.indexOf("{");
+    const end   = cleaned.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("No JSON found in response");
+    return JSON.parse(cleaned.slice(start, end + 1));
+  }
+
   try {
 
-    // ── ACTION: COMPARE ───────────────────────────────────────────────────────
+    // ── COMPARE ───────────────────────────────────────────────────────────────
     if (action === "compare") {
       if (!companyA || !yearA || !companyB || !yearB || !noteSection) {
-        return res.status(400).json({ error: "All fields required." });
+        return res.status(400).json({ error: "All fields are required." });
       }
 
-      const isSameCompany = companyA.trim().toLowerCase() === companyB.trim().toLowerCase();
-      const contextLine = isSameCompany
-        ? `Same company (${companyA}) in different years: ${yearA} vs ${yearB}`
-        : `Two different companies: ${companyA} (${yearA}) vs ${companyB} (${yearB})`;
+      const prompt = `You are a senior technical accountant comparing SEC 10-K filings.
 
-      const prompt = `You are a senior technical accountant and financial analyst with deep expertise in SEC 10-K filings.
-
-Compare the "${noteSection}" note from these two 10-K annual reports:
+Compare the "${noteSection}" note from:
 - Company A: ${companyA}, fiscal year ${yearA}
 - Company B: ${companyB}, fiscal year ${yearB}
-- Context: ${contextLine}
 
-Extract the 8-12 most important and comparable disclosure dimensions from this specific note type.
-Use your knowledge of actual SEC 10-K filings for these companies and years.
+Use your knowledge of actual SEC 10-K filings. Extract 8 to 12 key disclosure dimensions specific to this note type.
 
-Respond in EXACTLY this format — no text before %%META%%:
+Return ONLY a valid JSON object — no markdown, no explanation, nothing else before or after the JSON:
 
-%%META%%
-companyA|${companyA}
-yearA|${yearA}
-companyB|${companyB}
-yearB|${yearB}
-note|${noteSection}
-%%END%%
+{
+  "meta": {
+    "companyA": "${companyA}",
+    "yearA": "${yearA}",
+    "companyB": "${companyB}",
+    "yearB": "${yearB}",
+    "note": "${noteSection}"
+  },
+  "rows": [
+    {
+      "dimension": "Name of disclosure dimension",
+      "a": "Company A value or disclosure text",
+      "b": "Company B value or disclosure text"
+    }
+  ],
+  "summary": "2-3 sentences on the most important differences. Be specific with numbers.",
+  "keyInsight": "Single most important takeaway in plain English."
+}`;
 
-%%TABLE%%
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-[Dimension name]|[Company A ${yearA} disclosure/value]|[Company B ${yearB} disclosure/value]
-%%END%%
-
-%%SUMMARY%%
-[3-4 sentences highlighting the most significant differences and what they mean for an analyst or investor. Be specific and use real numbers where you know them.]
-%%END%%
-
-%%KEYINSIGHT%%
-[One single most important takeaway from this comparison in plain English.]
-%%END%%`;
-
-      const text = await callClaude(prompt);
-
-      // Parse META
-      const metaBlock = text.match(/%%META%%([\s\S]*?)%%END%%/);
-      const meta = {};
-      if (metaBlock) {
-        for (const line of metaBlock[1].split("\n")) {
-          const pipe = line.indexOf("|");
-          if (pipe === -1) continue;
-          meta[line.slice(0, pipe).trim()] = line.slice(pipe + 1).trim();
-        }
+      const text = await callClaude(prompt, 1800);
+      let parsed;
+      try {
+        parsed = extractJSON(text);
+      } catch (e) {
+        console.error("JSON parse failed:", text.slice(0, 500));
+        return res.status(500).json({ error: "Could not parse comparison response. Please try again." });
       }
 
-      // Parse TABLE rows
-      const tableBlock = text.match(/%%TABLE%%([\s\S]*?)%%END%%/);
-      const rows = [];
-      if (tableBlock) {
-        for (const line of tableBlock[1].split("\n")) {
-          const parts = line.split("|");
-          if (parts.length >= 3 && parts[0].trim()) {
-            rows.push({
-              dimension: parts[0].trim(),
-              a: parts[1].trim(),
-              b: parts[2].trim(),
-            });
-          }
-        }
+      if (!parsed.rows || parsed.rows.length === 0) {
+        return res.status(500).json({ error: "No comparison rows returned. Try different inputs." });
       }
 
-      // Parse SUMMARY
-      const summaryBlock = text.match(/%%SUMMARY%%([\s\S]*?)%%END%%/);
-      const summary = summaryBlock ? summaryBlock[1].trim() : "";
-
-      // Parse KEY INSIGHT
-      const insightBlock = text.match(/%%KEYINSIGHT%%([\s\S]*?)%%END%%/);
-      const keyInsight = insightBlock ? insightBlock[1].trim() : "";
-
-      if (rows.length === 0) {
-        return res.status(500).json({ error: "Could not parse comparison. Try different companies or note section." });
-      }
-
-      return res.status(200).json({ meta, rows, summary, keyInsight });
+      return res.status(200).json(parsed);
     }
 
-    // ── ACTION: SENTIMENT ─────────────────────────────────────────────────────
+    // ── SENTIMENT ─────────────────────────────────────────────────────────────
     if (action === "sentiment") {
       if (!tableData || !noteSection) return res.status(400).json({ error: "Missing data." });
 
-      const tableText = tableData.rows.map(r =>
-        `${r.dimension}: ${tableData.meta.companyA} = ${r.a} | ${tableData.meta.companyB} = ${r.b}`
-      ).join("\n");
+      const tableText = tableData.rows
+        .map(r => `${r.dimension}: ${tableData.meta.companyA}="${r.a}" vs ${tableData.meta.companyB}="${r.b}"`)
+        .join("\n");
 
-      const prompt = `You are a financial analyst. Analyze the sentiment of these two companies' disclosures in their "${noteSection}" note.
+      const prompt = `You are a financial analyst assessing disclosure sentiment in 10-K filings.
 
+Analyze the tone and sentiment of these two companies' "${noteSection}" disclosures:
 ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB})
 
-Comparison data:
+Data:
 ${tableText}
 
-Respond in EXACTLY this format:
+Return ONLY valid JSON, no markdown or extra text:
 
-%%SENTIMENT%%
-overallA|[Positive/Neutral/Cautious/Negative]
-scoreA|[1-10 where 10 is most positive]
-summaryA|[2 sentences on tone and language of Company A's disclosures]
-overallB|[Positive/Neutral/Cautious/Negative]
-scoreB|[1-10 where 10 is most positive]
-summaryB|[2 sentences on tone and language of Company B's disclosures]
-comparison|[2 sentences comparing the sentiment of both]
-redflags|[Any concerning language or disclosures, or "None identified"]
-%%END%%`;
+{
+  "overallA": "Positive or Neutral or Cautious or Negative",
+  "scoreA": 7,
+  "summaryA": "2 sentences on tone and language of Company A disclosures",
+  "overallB": "Positive or Neutral or Cautious or Negative",
+  "scoreB": 6,
+  "summaryB": "2 sentences on tone and language of Company B disclosures",
+  "comparison": "2 sentences comparing the sentiment of both companies",
+  "redflags": "Description of any red flags, or null if none"
+}`;
 
-      const text = await callClaude(prompt);
-      const block = text.match(/%%SENTIMENT%%([\s\S]*?)%%END%%/);
-      const sentiment = {};
-      if (block) {
-        for (const line of block[1].split("\n")) {
-          const pipe = line.indexOf("|");
-          if (pipe === -1) continue;
-          sentiment[line.slice(0, pipe).trim()] = line.slice(pipe + 1).trim();
-        }
+      const text = await callClaude(prompt, 800);
+      let sentiment;
+      try {
+        sentiment = extractJSON(text);
+      } catch (e) {
+        return res.status(500).json({ error: "Could not parse sentiment. Try again." });
       }
       return res.status(200).json({ sentiment });
     }
 
-    // ── ACTION: ASK ───────────────────────────────────────────────────────────
+    // ── ASK ───────────────────────────────────────────────────────────────────
     if (action === "ask") {
       if (!question || !tableData) return res.status(400).json({ error: "Missing question or data." });
 
-      const tableText = tableData.rows.map(r =>
-        `${r.dimension}: ${tableData.meta.companyA} = ${r.a} | ${tableData.meta.companyB} = ${r.b}`
-      ).join("\n");
+      const tableText = tableData.rows
+        .map(r => `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`)
+        .join("\n");
 
-      const systemContext = `You are a senior financial analyst helping analyze 10-K filings. You have the following comparison data for the "${tableData.meta.note}" note:
+      const prompt = `You are a senior financial analyst. Answer the question below using ONLY the comparison data provided.
 
-${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB})
-
-${tableText}
-
-Summary: ${tableData.summary}
-
-Answer questions about this data concisely and accurately. If asked something outside this data, say so clearly.`;
-
-      // Build messages with history
-      const messages = [
-        { role: "user", content: systemContext + "\n\nUser question: " + question },
-        ...(conversationHistory || []),
-      ];
-
-      // For Q&A, use a simpler message structure
-      const qaMessages = [
-        {
-          role: "user",
-          content: `Context - ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}), ${tableData.meta.note} note comparison:\n\n${tableText}\n\nSummary: ${tableData.summary}\n\nQuestion: ${question}`
-        },
-        ...(conversationHistory || []),
-        { role: "user", content: question }
-      ];
-
-      // Keep it simple - single turn with full context
-      const singlePrompt = `You are a senior financial analyst. Based on this 10-K comparison data, answer the question.
-
-Comparing: ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB})
+Comparison: ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB})
 Note section: ${tableData.meta.note}
 
 Data:
@@ -214,10 +150,10 @@ Summary: ${tableData.summary}
 
 Question: ${question}
 
-Give a direct, specific answer. Use the data provided. If you need to make reasonable inferences beyond the data, say so.`;
+Give a direct, specific answer in 2-4 sentences. If you go beyond the data provided, say so explicitly.`;
 
-      const answer = await callClaude(singlePrompt, null, 800);
-      return res.status(200).json({ answer });
+      const answer = await callClaude(prompt, 600);
+      return res.status(200).json({ answer: answer.trim() });
     }
 
     return res.status(400).json({ error: "Unknown action." });
