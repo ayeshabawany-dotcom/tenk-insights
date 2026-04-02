@@ -8,51 +8,59 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
-  try {
-    // ── STEP 1: Resolve ticker → CIK from SEC EDGAR ──────────────────────────
-    const tickerResp = await fetch("https://data.sec.gov/submissions/CIK0000000000.json", { method: "HEAD" }).catch(() => null);
-    // Use the company tickers JSON from SEC
-    const tickers = await fetch("https://data.sec.gov/files/company_tickers.json", {
-      headers: { "User-Agent": "10k-insights-app contact@tenk-insights.vercel.app" }
-    });
-    if (!tickers.ok) return res.status(502).json({ error: "Could not reach SEC EDGAR. Try again." });
+  // SEC requires a descriptive User-Agent identifying your app
+  const UA = "10KInsights/1.0 (https://tenk-insights.vercel.app; contact@tenk-insights.vercel.app)";
 
-    const tickerData = await tickers.json();
+  try {
+    // ── STEP 1: Resolve ticker → CIK ─────────────────────────────────────────
+    const tickersResp = await fetch(
+      "https://data.sec.gov/files/company_tickers.json",
+      { headers: { "User-Agent": UA, "Accept": "application/json" } }
+    );
+    if (!tickersResp.ok) {
+      return res.status(502).json({ error: `SEC EDGAR returned ${tickersResp.status} on ticker lookup. Try again in a moment.` });
+    }
+    const tickerData = await tickersResp.json();
     const entry = Object.values(tickerData).find(e => e.ticker === sym);
-    if (!entry) return res.status(404).json({ error: `Ticker "${sym}" not found in SEC EDGAR. Is it a US-listed company?` });
+    if (!entry) {
+      return res.status(404).json({ error: `"${sym}" not found in SEC EDGAR. Must be a US-listed public company.` });
+    }
 
     const cik = String(entry.cik_str).padStart(10, "0");
     const companyName = entry.title;
 
-    // ── STEP 2: Get latest 10-K filing metadata ───────────────────────────────
-    const subResp = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, {
-      headers: { "User-Agent": "10k-insights-app contact@tenk-insights.vercel.app" }
-    });
-    if (!subResp.ok) return res.status(502).json({ error: "Could not load company filings from EDGAR." });
+    // ── STEP 2: Get latest 10-K filing date + period ──────────────────────────
+    const subResp = await fetch(
+      `https://data.sec.gov/submissions/CIK${cik}.json`,
+      { headers: { "User-Agent": UA, "Accept": "application/json" } }
+    );
+    if (!subResp.ok) {
+      return res.status(502).json({ error: `SEC EDGAR returned ${subResp.status} loading filings for ${sym}.` });
+    }
     const subData = await subResp.json();
+    const recent = subData.filings.recent;
+    const idx = recent.form.findIndex(f => f === "10-K" || f === "10-K/A");
+    if (idx === -1) {
+      return res.status(404).json({ error: `No 10-K filing found for ${sym}.` });
+    }
+    const filingDate = recent.filingDate[idx];
+    const periodEnd  = recent.reportDate?.[idx] || filingDate;
 
-    const forms      = subData.filings.recent.form;
-    const dates      = subData.filings.recent.filingDate;
-    const periods    = subData.filings.recent.reportDate;
-
-    const idx = forms.findIndex(f => f === "10-K" || f === "10-K/A");
-    if (idx === -1) return res.status(404).json({ error: "No 10-K filing found for this company." });
-
-    const filingDate = dates[idx];
-    const periodEnd  = periods?.[idx] || filingDate;
-
-    // ── STEP 3: Get XBRL financial facts ─────────────────────────────────────
-    const factsResp = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
-      headers: { "User-Agent": "10k-insights-app contact@tenk-insights.vercel.app" }
-    });
-    if (!factsResp.ok) return res.status(502).json({ error: "Could not load financial data from EDGAR." });
+    // ── STEP 3: Fetch XBRL company facts ─────────────────────────────────────
+    const factsResp = await fetch(
+      `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`,
+      { headers: { "User-Agent": UA, "Accept": "application/json" } }
+    );
+    if (!factsResp.ok) {
+      return res.status(502).json({ error: `SEC EDGAR returned ${factsResp.status} loading XBRL data for ${sym}.` });
+    }
     const factsData = await factsResp.json();
     const usgaap = factsData.facts?.["us-gaap"] || {};
 
-    // ── STEP 4: Extract latest annual value for each concept ─────────────────
-    function getLatest(usgaap, ...names) {
+    // ── STEP 4: Extract most recent annual value per concept ──────────────────
+    function getLatest(gaap, ...names) {
       for (const name of names) {
-        const concept = usgaap[name];
+        const concept = gaap[name];
         if (!concept) continue;
         const units = Object.values(concept.units || {}).flat();
         const annual = units
@@ -78,17 +86,17 @@ export default async function handler(req, res) {
       return n < 0 ? `-$${Math.abs(n).toFixed(2)}` : `$${n.toFixed(2)}`;
     }
 
-    const revenue      = getLatest(usgaap, "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax");
-    const netIncome    = getLatest(usgaap, "NetIncomeLoss", "ProfitLoss");
-    const opIncome     = getLatest(usgaap, "OperatingIncomeLoss");
-    const assets       = getLatest(usgaap, "Assets");
-    const liabilities  = getLatest(usgaap, "Liabilities");
-    const equity       = getLatest(usgaap, "StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest");
-    const cash         = getLatest(usgaap, "CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsAndShortTermInvestments");
-    const debt         = getLatest(usgaap, "LongTermDebt", "LongTermDebtNoncurrent");
-    const eps          = getLatest(usgaap, "EarningsPerShareBasic", "EarningsPerShareDiluted");
-    const ocf          = getLatest(usgaap, "NetCashProvidedByUsedInOperatingActivities");
-    const employees    = getLatest(usgaap, "EntityNumberOfEmployees");
+    const revenue     = getLatest(usgaap, "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax");
+    const netIncome   = getLatest(usgaap, "NetIncomeLoss", "ProfitLoss");
+    const opIncome    = getLatest(usgaap, "OperatingIncomeLoss");
+    const assets      = getLatest(usgaap, "Assets");
+    const liabilities = getLatest(usgaap, "Liabilities");
+    const equity      = getLatest(usgaap, "StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest");
+    const cash        = getLatest(usgaap, "CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsAndShortTermInvestments");
+    const debt        = getLatest(usgaap, "LongTermDebt", "LongTermDebtNoncurrent");
+    const eps         = getLatest(usgaap, "EarningsPerShareBasic", "EarningsPerShareDiluted");
+    const ocf         = getLatest(usgaap, "NetCashProvidedByUsedInOperatingActivities");
+    const employees   = getLatest(usgaap, "EntityNumberOfEmployees");
 
     const metrics = {
       revenue:     fmt(revenue),
@@ -104,25 +112,25 @@ export default async function handler(req, res) {
       employees:   employees ? Number(employees.val).toLocaleString() : "N/A",
     };
 
-    // ── STEP 5: Ask Claude to explain the real numbers only ───────────────────
-    const metricsText = Object.entries(metrics)
+    // ── STEP 5: Claude explains the real numbers only ─────────────────────────
+    const metricsLines = Object.entries(metrics)
       .filter(([, v]) => v !== "N/A")
-      .map(([k, v]) => `${k}: ${v}`)
+      .map(([k, v]) => `  ${k}: ${v}`)
       .join("\n");
 
-    const prompt = `You are a financial analyst explaining ${companyName} (${sym}) to someone with zero finance background — like a smart friend who doesn't follow markets.
+    const prompt = `You are a financial analyst explaining a company's annual report to someone with zero finance background.
 
-The following numbers are REAL, scraped directly from SEC EDGAR XBRL filings. Do not invent or estimate any numbers — only use what is provided below.
+The numbers below are REAL data scraped directly from SEC EDGAR XBRL filings. Do NOT invent, estimate, or change any numbers. Only use what is provided.
 
 Company: ${companyName} (${sym})
-SEC CIK: ${cik}
-10-K Period ending: ${periodEnd}
-10-K Filed: ${filingDate}
+CIK: ${cik}
+10-K period ending: ${periodEnd}
+Filed: ${filingDate}
 
-Verified financials from SEC EDGAR:
-${metricsText}
+Real financials from SEC EDGAR:
+${metricsLines}
 
-Respond in EXACTLY this format. Start with %%META%% immediately:
+Respond in EXACTLY this format — start with %%META%% immediately, no text before it:
 
 %%META%%
 name|${companyName}
@@ -144,21 +152,21 @@ employees|${metrics.employees}
 
 %%ANALYSIS%%
 ##What does this company do?
-[2-3 plain-English sentences. Zero jargon.]
+[2-3 plain-English sentences. No jargon at all.]
 
 ##How's the business actually doing?
-[3-4 sentences using ONLY the real numbers above. Is it growing? Profitable? Be direct and specific.]
+[3-4 sentences using ONLY the real numbers above. Profitable or not? Growing or shrinking? Be direct.]
 
 ##Is the balance sheet healthy?
-[3-4 sentences on assets, debt, and cash using the actual numbers. Explain what it means for a regular person.]
+[3-4 sentences on assets, debt and cash using the actual numbers. What does the debt level mean for a regular person?]
 
 ##What to watch out for
-- [specific concern grounded in the actual numbers]
+- [specific concern grounded in the actual numbers above]
 - [second specific one]
 - [third specific one]
 
 ##The verdict
-[1-2 punchy sentences. Honest take based only on what the numbers show.]
+[1-2 punchy honest sentences based only on what the real numbers show.]
 %%END%%`;
 
     const claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -177,16 +185,16 @@ employees|${metrics.employees}
 
     if (!claudeResp.ok) {
       const err = await claudeResp.json().catch(() => ({}));
-      return res.status(claudeResp.status).json({ error: err?.error?.message || "Claude API error" });
+      return res.status(claudeResp.status).json({ error: err?.error?.message || `Claude API error ${claudeResp.status}` });
     }
 
     const claudeData = await claudeResp.json();
     const text = (claudeData.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
-    if (!text.trim()) return res.status(500).json({ error: "Empty response from Claude" });
+    if (!text.trim()) return res.status(500).json({ error: "Empty response from Claude. Try again." });
 
     return res.status(200).json({ text, cik, filingDate, periodEnd });
 
   } catch (err) {
-    return res.status(500).json({ error: err.message || "Server error" });
+    return res.status(500).json({ error: err.message || "Unexpected server error. Try again." });
   }
 }
