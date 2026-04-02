@@ -30,30 +30,34 @@ const EXAMPLE_PAIRS = [
 ];
 
 const FEATURES = [
-  { icon: "⚖️", title: "Side-by-Side Comparison", desc: "Any two companies. Any two fiscal years. Any of 16 note sections. Structured, institutional-grade output." },
+  { icon: "⚖️", title: "Side-by-Side Comparison", desc: "Any two companies. Any two fiscal years. Any of 16 note sections. Structured, institutional-grade output in seconds." },
   { icon: "🎭", title: "Disclosure Sentiment Scoring", desc: "Quantify the language of each filing. Surface hedging, caution, and red flags invisible to the naked eye." },
-  { icon: "💬", title: "Natural Language Q&A", desc: "Interrogate the comparison directly. Answers grounded in the filing data — not generic knowledge." },
+  { icon: "💬", title: "Natural Language Q&A", desc: "Interrogate the comparison directly. Answers grounded in the actual filing text — not generic knowledge." },
 ];
 
 function exportCSV(rows, meta) {
   const header = `"Dimension","${meta.companyA} (${meta.yearA})","${meta.companyB} (${meta.yearB})"`;
-  const body = rows.map(r => `"${r.dimension}","${r.a.replace(/"/g,'""')}","${r.b.replace(/"/g,'""')}"`).join("\n");
+  const body = rows.map(r =>
+    `"${r.dimension}","${r.a.replace(/"/g, '""')}","${r.b.replace(/"/g, '""')}"`
+  ).join("\n");
   const blob = new Blob([header + "\n" + body], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${meta.companyA}_vs_${meta.companyB}_${meta.note}_${meta.yearA}_${meta.yearB}.csv`.replace(/\s+/g,"_");
+  a.download = `${meta.companyA}_vs_${meta.companyB}_${meta.note}_${meta.yearA}_${meta.yearB}.csv`.replace(/\s+/g, "_");
   a.click();
   URL.revokeObjectURL(url);
 }
 
 function ScoreBar({ score, color }) {
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
-      <div style={{ flex:1, height:3, background:"#e2e8f0", borderRadius:100, overflow:"hidden" }}>
-        <div style={{ height:"100%", width:`${(score/10)*100}%`, background:color, borderRadius:100, transition:"width 1s ease" }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+      <div style={{ flex: 1, height: 5, background: "#e5e7eb", borderRadius: 100, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${(score / 10) * 100}%`, background: color, borderRadius: 100, transition: "width 1s ease" }} />
       </div>
-      <span style={{ fontSize:12, fontWeight:600, color, minWidth:32, textAlign:"right", fontFamily:"'Libre Baskerville',serif" }}>{score}<span style={{ fontSize:10, opacity:.5, fontWeight:400 }}>/10</span></span>
+      <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 32, textAlign: "right" }}>
+        {score}<span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>/10</span>
+      </span>
     </div>
   );
 }
@@ -80,13 +84,18 @@ export default function Home() {
     setSentiment(null); setSentPhase("idle"); setQaHistory([]); setQaOpen(false);
     try {
       const resp = await fetch("/api/analyze", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ action:"compare", companyA, yearA, companyB, yearB, noteSection:note }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "compare", companyA, yearA, companyB, yearB, noteSection: note }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Comparison failed");
-      setResult(data); setPhase("done");
-    } catch(e) { setErrMsg(e.message); setPhase("error"); }
+      setResult(data);
+      setPhase("done");
+    } catch (e) {
+      setErrMsg(e.message);
+      setPhase("error");
+    }
   }
 
   async function runSentiment() {
@@ -94,13 +103,17 @@ export default function Home() {
     setSentPhase("loading"); setSentiment(null);
     try {
       const resp = await fetch("/api/analyze", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ action:"sentiment", noteSection:note, tableData:result }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "sentiment", noteSection: note, tableData: result }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error);
-      setSentiment(data.sentiment); setSentPhase("done");
-    } catch(e) { setSentPhase("error"); }
+      setSentiment(data.sentiment);
+      setSentPhase("done");
+    } catch (e) {
+      setSentPhase("error");
+    }
   }
 
   async function askQuestion() {
@@ -109,236 +122,187 @@ export default function Home() {
     setQuestion(""); setQaPhase("loading");
     try {
       const resp = await fetch("/api/analyze", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ action:"ask", question:q, tableData:result }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "ask", question: q, tableData: result }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error);
-      setQaHistory(prev => [...prev, { q, a:data.answer }]);
+      setQaHistory(prev => [...prev, { q, a: data.answer }]);
       setQaPhase("idle");
-    } catch(e) {
-      setQaHistory(prev => [...prev, { q, a:"Something went wrong. Please try again." }]);
+    } catch (e) {
+      setQaHistory(prev => [...prev, { q, a: "Something went wrong. Please try again." }]);
       setQaPhase("idle");
     }
   }
 
   function loadExample(ex) {
-    setCompanyA(ex.a); setYearA(ex.ya); setCompanyB(ex.b); setYearB(ex.yb); setNote(ex.note);
+    setCompanyA(ex.a); setYearA(ex.ya);
+    setCompanyB(ex.b); setYearB(ex.yb);
+    setNote(ex.note);
   }
 
   const sentimentColor = (s) => {
-    if (s === "Positive") return "#6dbf9e";
-    if (s === "Cautious")  return "#c4a35a";
-    if (s === "Negative")  return "#c47a6d";
-    return "#8fa3b8";
+    if (s === "Positive") return "#059669";
+    if (s === "Cautious")  return "#d97706";
+    if (s === "Negative")  return "#dc2626";
+    return "#6b7280";
   };
 
-  // Dynasty-inspired palette
-  const NAVY    = "#ffffff";
-  const NAVY2   = "#f8f9fa";
-  const GOLD    = "#c4974a";  // muted champagne gold
-  const GOLD2   = "#a87d3a";
-  const STEEL   = "#f0f4f8";  // mid-navy for cards
-  const BORDER  = "#dde1e7";
-  const BORDER2 = "rgba(196,151,74,.6)"; // gold border
-  const TEXT    = "#111827";  // warm white
-  const MUTED   = "#6b7280";  // blue-grey
-  const DIMMED  = "#374151";
+  // ── Light theme palette ───────────────────────────────────────────────────
+  const GOLD   = "#b45309";   // deep amber — readable on white
+  const BLUE   = "#1d4ed8";   // strong cobalt
+  const GREEN  = "#059669";
+  const RED    = "#dc2626";
 
-  const inputBase = {
-    width:"100%",
-    background:"#ffffff",
-    border:`1px solid ${BORDER}`,
-    borderRadius:8,
-    padding:"12px 16px",
-    fontSize:14,
-    fontFamily:"'Source Sans 3',sans-serif",
-    color:TEXT,
-    outline:"none",
-    transition:"border-color .2s, box-shadow .2s",
+  const inputStyle = {
+    width: "100%",
+    background: "#ffffff",
+    border: "1.5px solid #d1d5db",
+    borderRadius: 8,
+    padding: "11px 14px",
+    fontSize: 14,
+    fontFamily: "'Source Sans 3', sans-serif",
+    color: "#111827",
+    outline: "none",
   };
 
-  const labelBase = {
-    display:"block",
-    fontFamily:"'Source Sans 3',sans-serif",
-    fontSize:10,
-    fontWeight:700,
-    letterSpacing:"1.5px",
-    textTransform:"uppercase",
-    marginBottom:8,
-    color:MUTED,
+  const labelStyle = {
+    display: "block",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.8px",
+    textTransform: "uppercase",
+    marginBottom: 7,
+    color: "#9ca3af",
+    fontFamily: "'Source Sans 3', sans-serif",
   };
 
   return (
     <>
       <Head>
         <title>10-K Compare — Institutional Filing Intelligence</title>
-        <meta name="description" content="Side-by-side analysis of any 10-K note section. Institutional-grade. Seconds." />
+        <meta name="description" content="Compare any two 10-K note sections side by side. Real SEC filing text. Seconds." />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet" />
       </Head>
 
       <style>{`
-        *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
-        html { scroll-behavior:smooth; }
-        body {
-          background:${NAVY};
-          color:${TEXT};
-          font-family:'Source Sans 3',sans-serif;
-          min-height:100vh;
-        }
-        /* Subtle diagonal texture */
-        body::before { display:none; }
-        * { position:relative; z-index:1; }
-        ::selection { background:rgba(196,151,74,.25); }
-        input::placeholder, textarea::placeholder { color:rgba(143,163,184,.5); }
-        input:focus, select:focus, textarea:focus {
-          outline:none!important;
-          border-color:${GOLD}!important;
-          box-shadow:0 0 0 3px rgba(196,151,74,.15)!important;
-        }
-        select option { background:${NAVY2}; color:${TEXT}; }
-        .btn { transition:all .2s cubic-bezier(.16,1,.3,1); cursor:pointer; border:none; font-family:'Source Sans 3',sans-serif; font-weight:600; }
-        .btn:hover:not(:disabled) { transform:translateY(-2px); }
-        .btn:active:not(:disabled) { transform:translateY(0); }
-        .btn:disabled { opacity:.35; cursor:not-allowed; transform:none!important; }
-        .chip:hover { border-color:${GOLD}!important; color:${GOLD}!important; }
-        .chip { transition:all .18s; }
-        .trow:hover > td { background:#f9fafb!important; }
-        .feat-card:hover { border-color:#d97706!important; transform:translateY(-3px); }
-        .feat-card { transition:all .2s; }
-
-        @keyframes fadeUp   { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes shimmer  { 0%,100%{background-position:0% center} 50%{background-position:100% center} }
-        @keyframes spin     { to{transform:rotate(360deg)} }
-        @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:.35} }
-        @keyframes slideR   { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
-        @keyframes slideL   { from{opacity:0;transform:translateX(8px)}  to{opacity:1;transform:translateX(0)} }
-        @keyframes borderGlow { 0%,100%{border-color:rgba(196,151,74,.3)} 50%{border-color:rgba(196,151,74,.7)} }
-
-        .fadeup { animation:fadeUp .55s cubic-bezier(.16,1,.3,1) forwards; opacity:0; }
-        .d1{animation-delay:.07s}.d2{animation-delay:.14s}.d3{animation-delay:.21s}
-        .d4{animation-delay:.28s}.d5{animation-delay:.35s}
-
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body { background: #f5f7fa; color: #111827; font-family: 'Source Sans 3', sans-serif; min-height: 100vh; }
+        ::selection { background: rgba(180,83,9,.15); }
+        input::placeholder, textarea::placeholder { color: #9ca3af; }
+        input:focus, select:focus, textarea:focus { outline: none !important; border-color: #b45309 !important; box-shadow: 0 0 0 3px rgba(180,83,9,.1) !important; }
+        select option { background: #fff; color: #111827; }
+        .btn { transition: all .18s; cursor: pointer; border: none; font-family: 'Source Sans 3', sans-serif; font-weight: 600; }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
+        .btn:active:not(:disabled) { transform: translateY(0); }
+        .btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+        .chip:hover { border-color: #b45309 !important; color: #b45309 !important; background: #fffbeb !important; }
+        .chip { transition: all .15s; }
+        .trow:hover > td { background: #fafafa !important; }
+        .feat:hover { box-shadow: 0 8px 24px rgba(0,0,0,.1) !important; transform: translateY(-2px); }
+        .feat { transition: all .2s; }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+        @keyframes shimmer { 0%,100%{background-position:0% center} 50%{background-position:100% center} }
+        .fadeup { animation: fadeUp .5s cubic-bezier(.16,1,.3,1) forwards; opacity:0; }
+        .d1{animation-delay:.07s}.d2{animation-delay:.14s}.d3{animation-delay:.21s}.d4{animation-delay:.28s}
+        .spin { animation: spin 1s linear infinite; display: inline-block; }
+        .pulse { animation: pulse 2s ease infinite; }
         .gold-shimmer {
-          background:linear-gradient(90deg,#b45309 0%,#d97706 30%,#b45309 55%,#92400e 80%,#b45309 100%);
-          background-size:280% auto;
-          -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-          background-clip:text; animation:shimmer 5s ease infinite;
+          background: linear-gradient(90deg, #b45309 0%, #d97706 30%, #b45309 55%, #92400e 80%, #b45309 100%);
+          background-size: 280% auto;
+          -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+          background-clip: text; animation: shimmer 5s ease infinite;
         }
-        .spin     { animation:spin 1s linear infinite; display:inline-block; }
-        .pulse-dot{ animation:pulse 2s ease infinite; }
-
-        /* Divider line with gold gradient */
-        .gold-rule { height:1px; background:linear-gradient(90deg,transparent,${GOLD},transparent); border:none; margin:0; }
-
-        .bubble-q {
-          background:rgba(196,151,74,.12);
-          border:1px solid rgba(196,151,74,.3);
-          border-radius:12px 12px 3px 12px;
-          padding:12px 16px; font-size:14px; color:#e8d5a8;
-          line-height:1.65; animation:slideL .3s ease forwards;
-        }
-        .bubble-a {
-          background:#f9fafb;
-          border:1px solid ${BORDER};
-          border-radius:3px 12px 12px 12px;
-          padding:12px 16px; font-size:14px; color:${DIMMED};
-          line-height:1.8; animation:slideR .3s ease .08s forwards; opacity:0;
-        }
-
-        ::-webkit-scrollbar { width:4px; height:4px; }
-        ::-webkit-scrollbar-track { background:transparent; }
-        ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:2px; }
-        table { border-collapse:collapse; width:100%; }
-        th, td { vertical-align:top; }
-        a { color:${GOLD}; text-decoration:none; }
-        a:hover { color:#e8c87a; text-decoration:underline; }
+        .gold-rule { height: 1px; background: linear-gradient(90deg, transparent, #d97706, transparent); border: none; }
+        a { color: #b45309; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { vertical-align: top; }
       `}</style>
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
-      <header style={{ background:NAVY2, borderBottom:"1px solid #e2e8f0", padding:"0 40px", height:68, display:"flex", alignItems:"center", gap:16, position:"sticky", top:0, zIndex:50 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-          {/* Wordmark */}
-          <div style={{ borderRight:"1px solid #dde1e7", paddingRight:14, marginRight:2 }}>
-            <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:18, fontWeight:700, color:TEXT, letterSpacing:"-.2px", lineHeight:1.1 }}>10-K Compare</div>
-            <div style={{ fontSize:9, color:MUTED, letterSpacing:"2px", textTransform:"uppercase", marginTop:3 }}>Filing Intelligence</div>
+      <header style={{ background: "#ffffff", borderBottom: "1.5px solid #e5e7eb", padding: "0 36px", height: 64, display: "flex", alignItems: "center", gap: 16, position: "sticky", top: 0, zIndex: 50, boxShadow: "0 1px 8px rgba(0,0,0,.06)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 38, height: 38, background: "linear-gradient(135deg,#d97706,#f59e0b)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, boxShadow: "0 2px 8px rgba(217,119,6,.3)" }}>📊</div>
+          <div>
+            <div style={{ fontFamily: "'Libre Baskerville',serif", fontSize: 20, fontWeight: 700, color: "#111827", letterSpacing: "-.3px" }}>10-K Compare</div>
+            <div style={{ fontSize: 10, color: "#9ca3af", letterSpacing: "1.5px", textTransform: "uppercase", marginTop: 2 }}>Institutional Filing Intelligence</div>
           </div>
-          <div style={{ width:6, height:6, borderRadius:"50%", background:GOLD, opacity:.7 }} />
         </div>
 
-        <nav style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {phase === "done" && result && (
             <>
-              <button className="btn" onClick={runSentiment} disabled={sentPhase==="loading"} style={{ background:"transparent", border:`1px solid ${BORDER}`, color:MUTED, borderRadius:6, padding:"7px 16px", fontSize:12, letterSpacing:".3px" }}>
-                {sentPhase==="loading" ? <><span className="spin">⟳</span>&nbsp;Analyzing…</> : "Sentiment Analysis"}
+              <button className="btn" onClick={runSentiment} disabled={sentPhase === "loading"}
+                style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", color: BLUE, borderRadius: 7, padding: "7px 15px", fontSize: 12 }}>
+                {sentPhase === "loading" ? <><span className="spin">⟳</span>&nbsp;Analyzing…</> : "🎭 Sentiment"}
               </button>
-              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)} style={{ background:"transparent", border:`1px solid ${BORDER2}`, color:GOLD, borderRadius:6, padding:"7px 16px", fontSize:12, letterSpacing:".3px" }}>
-                Export CSV
+              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)}
+                style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", color: GREEN, borderRadius: 7, padding: "7px 15px", fontSize: 12 }}>
+                ⬇ Export CSV
               </button>
             </>
           )}
-          <div style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", border:`1px solid rgba(196,151,74,.25)`, borderRadius:6 }}>
-            <div className="pulse-dot" style={{ width:5, height:5, borderRadius:"50%", background:GOLD }} />
-            <span style={{ fontSize:11, color:GOLD, letterSpacing:".5px", fontFamily:"'Source Sans 3',sans-serif", fontWeight:600 }}>LIVE</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 7, padding: "5px 12px" }}>
+            <div className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN, boxShadow: "0 0 6px #059669" }} />
+            <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>LIVE</span>
           </div>
-        </nav>
+        </div>
       </header>
 
-      {/* ── HERO BAND ───────────────────────────────────────────────────────── */}
+      {/* ── HERO ───────────────────────────────────────────────────────────── */}
       {phase === "idle" && (
-        <div style={{ background:`linear-gradient(180deg, ${NAVY2} 0%, ${NAVY} 100%)`, borderBottom:`1px solid #f0f4f8`, padding:"80px 40px 72px", textAlign:"center" }}>
+        <div style={{ background: "linear-gradient(180deg,#ffffff 0%,#f5f7fa 100%)", borderBottom: "1.5px solid #e5e7eb", padding: "72px 36px 64px", textAlign: "center" }}>
           <div className="fadeup">
-            {/* Category label */}
-            <div style={{ display:"inline-flex", alignItems:"center", gap:10, marginBottom:28 }}>
-              <hr className="gold-rule" style={{ width:40 }} />
-              <span style={{ fontSize:10, color:GOLD, letterSpacing:"3px", textTransform:"uppercase", fontFamily:"'Source Sans 3',sans-serif", fontWeight:700 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+              <hr className="gold-rule" style={{ width: 36 }} />
+              <span style={{ fontSize: 10, color: "#b45309", letterSpacing: "2.5px", textTransform: "uppercase", fontWeight: 700 }}>
                 SEC 10-K Filing Intelligence
               </span>
-              <hr className="gold-rule" style={{ width:40 }} />
+              <hr className="gold-rule" style={{ width: 36 }} />
             </div>
 
-            {/* Headline */}
-            <h1 style={{ fontFamily:"'Libre Baskerville',serif", fontSize:"clamp(36px,5.5vw,68px)", fontWeight:700, color:TEXT, lineHeight:1.12, marginBottom:20, letterSpacing:"-1px" }}>
+            <h1 style={{ fontFamily: "'Libre Baskerville',serif", fontSize: "clamp(34px,5.5vw,64px)", fontWeight: 700, color: "#111827", lineHeight: 1.1, marginBottom: 18, letterSpacing: "-1px" }}>
               The footnotes tell<br />
               <span className="gold-shimmer">the real story.</span>
             </h1>
 
-            {/* Subhead */}
-            <p style={{ fontSize:18, color:DIMMED, lineHeight:1.8, maxWidth:580, margin:"0 auto 14px", fontWeight:300, fontFamily:"'Libre Baskerville',serif", fontStyle:"italic" }}>
+            <p style={{ fontSize: 18, color: "#374151", lineHeight: 1.8, maxWidth: 580, margin: "0 auto 12px", fontFamily: "'Libre Baskerville',serif", fontStyle: "italic", fontWeight: 400 }}>
               Every 10-K contains disclosures analysts spend days manually comparing.
             </p>
-            <p style={{ fontSize:15, color:MUTED, lineHeight:1.75, maxWidth:500, margin:"0 auto 40px", fontFamily:"'Source Sans 3',sans-serif", fontWeight:400 }}>
-              Select two companies, any fiscal year, any note section — and receive a structured, side-by-side analysis in seconds. With sentiment scoring, CSV export, and AI-powered Q&A.
+            <p style={{ fontSize: 15, color: "#6b7280", lineHeight: 1.75, maxWidth: 500, margin: "0 auto 36px" }}>
+              Pick two companies, any year, any note section — get a structured side-by-side breakdown in seconds. With sentiment scoring, CSV export, and AI-powered Q&A.
             </p>
 
             {/* Stats */}
-            <div style={{ display:"inline-flex", alignItems:"center", gap:0, border:`1px solid ${BORDER}`, borderRadius:8, overflow:"hidden", marginBottom:44 }}>
-              {[
-                { val:"16", label:"Note Categories" },
-                { val:"10", label:"Fiscal Years"    },
-                { val:"3",  label:"Analysis Modes"  },
-              ].map((s,i) => (
-                <div key={i} style={{ padding:"14px 30px", borderRight:i<2?`1px solid ${BORDER}`:"none", textAlign:"center", background:"#ffffff" }}>
-                  <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:26, fontWeight:700, color:GOLD, lineHeight:1 }}>{s.val}</div>
-                  <div style={{ fontSize:9, color:MUTED, textTransform:"uppercase", letterSpacing:"1.5px", marginTop:5, fontWeight:700 }}>{s.label}</div>
+            <div style={{ display: "inline-flex", alignItems: "center", border: "1.5px solid #e5e7eb", borderRadius: 10, overflow: "hidden", marginBottom: 40, boxShadow: "0 2px 8px rgba(0,0,0,.06)", background: "#ffffff" }}>
+              {[{ val: "16", label: "Note Categories" }, { val: "10", label: "Fiscal Years" }, { val: "3", label: "Analysis Modes" }].map((s, i) => (
+                <div key={i} style={{ padding: "14px 28px", borderRight: i < 2 ? "1.5px solid #e5e7eb" : "none", textAlign: "center" }}>
+                  <div style={{ fontFamily: "'Libre Baskerville',serif", fontSize: 26, fontWeight: 700, color: "#b45309", lineHeight: 1 }}>{s.val}</div>
+                  <div style={{ fontSize: 9, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "1.5px", marginTop: 5, fontWeight: 700 }}>{s.label}</div>
                 </div>
               ))}
             </div>
 
-            {/* Example chips */}
+            {/* Examples */}
             <div>
-              <div style={{ fontSize:9, color:MUTED, textTransform:"uppercase", letterSpacing:"2px", fontWeight:700, marginBottom:12 }}>
-                Load a live example
-              </div>
-              <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap" }}>
-                {EXAMPLE_PAIRS.map((ex,i) => (
-                  <button key={i} className="chip btn" onClick={() => loadExample(ex)} style={{ background:"transparent", border:`1px solid ${BORDER}`, color:MUTED, borderRadius:6, padding:"8px 16px", fontSize:12, lineHeight:1.5 }}>
-                    <span style={{ color:GOLD, fontWeight:700 }}>{ex.a} {ex.ya}</span>
-                    <span style={{ color:"#cbd5e1", margin:"0 7px" }}>vs</span>
-                    <span style={{ color:"#7aabcf", fontWeight:700 }}>{ex.b} {ex.yb}</span>
-                    <span style={{ display:"block", fontSize:10, color:"rgba(143,163,184,.5)", marginTop:2 }}>{ex.note}</span>
+              <div style={{ fontSize: 10, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "2px", fontWeight: 700, marginBottom: 12 }}>Load a live example</div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                {EXAMPLE_PAIRS.map((ex, i) => (
+                  <button key={i} className="chip btn" onClick={() => loadExample(ex)}
+                    style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", color: "#6b7280", borderRadius: 8, padding: "8px 16px", fontSize: 12, lineHeight: 1.5, boxShadow: "0 1px 4px rgba(0,0,0,.05)" }}>
+                    <span style={{ color: "#b45309", fontWeight: 700 }}>{ex.a} {ex.ya}</span>
+                    <span style={{ color: "#d1d5db", margin: "0 6px" }}>vs</span>
+                    <span style={{ color: "#1d4ed8", fontWeight: 700 }}>{ex.b} {ex.yb}</span>
+                    <span style={{ display: "block", fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{ex.note}</span>
                   </button>
                 ))}
               </div>
@@ -347,70 +311,70 @@ export default function Home() {
         </div>
       )}
 
-      <main style={{ maxWidth:980, margin:"0 auto", padding:"44px 24px 100px" }}>
+      <main style={{ maxWidth: 960, margin: "0 auto", padding: "40px 24px 100px" }}>
 
         {/* ── FEATURE CARDS ─────────────────────────────────────────────────── */}
         {phase === "idle" && (
-          <div className="fadeup d2" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:1, marginBottom:40, border:`1px solid ${BORDER}`, borderRadius:12, overflow:"hidden" }}>
-            {FEATURES.map((f,i) => (
-              <div key={i} className="feat-card" style={{ background:"#f8f9fa", padding:"28px 24px", borderRight:i<2?`1px solid ${BORDER}`:"none" }}>
-                <div style={{ fontSize:22, marginBottom:14 }}>{f.icon}</div>
-                <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:16, fontWeight:700, color:TEXT, marginBottom:8, lineHeight:1.35 }}>{f.title}</div>
-                <div style={{ fontSize:13, color:MUTED, lineHeight:1.78 }}>{f.desc}</div>
+          <div className="fadeup d2" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 36 }}>
+            {FEATURES.map((f, i) => (
+              <div key={i} className="feat" style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: "24px 20px", boxShadow: "0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ fontSize: 26, marginBottom: 12 }}>{f.icon}</div>
+                <div style={{ fontFamily: "'Libre Baskerville',serif", fontSize: 16, fontWeight: 700, color: "#111827", marginBottom: 8 }}>{f.title}</div>
+                <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.75 }}>{f.desc}</div>
               </div>
             ))}
           </div>
         )}
 
         {/* ── INPUT PANEL ──────────────────────────────────────────────────── */}
-        <div className={phase==="idle" ? "fadeup d3" : ""} style={{ background:STEEL, border:`1px solid ${BORDER}`, borderRadius:12, padding:32, marginBottom:24 }}>
-
+        <div className={phase === "idle" ? "fadeup d3" : ""} style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderRadius: 16, padding: 28, marginBottom: 24, boxShadow: "0 2px 12px rgba(0,0,0,.06)" }}>
           {phase === "idle" && (
-            <div style={{ marginBottom:24, paddingBottom:20, borderBottom:`1px solid ${BORDER}` }}>
-              <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:20, fontWeight:700, color:TEXT, marginBottom:4 }}>Build your comparison</div>
-              <div style={{ fontSize:13, color:MUTED }}>Select two companies, their fiscal years, and the note section to compare.</div>
+            <div style={{ marginBottom: 22, paddingBottom: 18, borderBottom: "1.5px solid #f3f4f6" }}>
+              <div style={{ fontFamily: "'Libre Baskerville',serif", fontSize: 20, fontWeight: 700, color: "#111827" }}>Build your comparison</div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Select two companies, their fiscal years, and the note section to compare.</div>
             </div>
           )}
 
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
-
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
             {/* Company A */}
-            <div style={{ background:"#fffbeb", border:`1px solid rgba(196,151,74,.22)`, borderTop:`2px solid ${GOLD}`, borderRadius:10, padding:20 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-                <div style={{ width:28, height:28, borderRadius:6, border:`1px solid rgba(196,151,74,.4)`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Libre Baskerville',serif", fontSize:14, fontWeight:700, color:GOLD }}>A</div>
+            <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderTop: "3px solid #d97706", borderRadius: 12, padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, background: "#fef3c7", border: "1.5px solid #fcd34d", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Libre Baskerville',serif", fontSize: 14, fontWeight: 700, color: "#b45309" }}>A</div>
                 <div>
-                  <div style={{ fontSize:11, fontWeight:700, color:GOLD, textTransform:"uppercase", letterSpacing:"1.5px" }}>Company A</div>
-                  <div style={{ fontSize:10, color:"rgba(196,151,74,.5)", marginTop:1 }}>First filing</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#b45309", textTransform: "uppercase", letterSpacing: "1.2px" }}>Company A</div>
+                  <div style={{ fontSize: 10, color: "#92400e", marginTop: 1 }}>First filing</div>
                 </div>
               </div>
-              <div style={{ marginBottom:12 }}>
-                <label style={{ ...labelBase, color:"rgba(196,151,74,.6)" }}>Company name or ticker</label>
-                <input value={companyA} onChange={e => setCompanyA(e.target.value)} placeholder="e.g. Meta, Goldman Sachs, AAPL" style={{ ...inputBase, borderColor:"rgba(196,151,74,.25)" }} />
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ ...labelStyle, color: "#92400e" }}>Company name or ticker</label>
+                <input value={companyA} onChange={e => setCompanyA(e.target.value)} placeholder="e.g. Meta, Goldman Sachs, AAPL"
+                  style={{ ...inputStyle, borderColor: "#fcd34d" }} />
               </div>
               <div>
-                <label style={{ ...labelBase, color:"rgba(196,151,74,.6)" }}>Fiscal Year</label>
-                <select value={yearA} onChange={e => setYearA(e.target.value)} style={{ ...inputBase, borderColor:"rgba(196,151,74,.25)", cursor:"pointer" }}>
+                <label style={{ ...labelStyle, color: "#92400e" }}>Fiscal Year</label>
+                <select value={yearA} onChange={e => setYearA(e.target.value)} style={{ ...inputStyle, borderColor: "#fcd34d", cursor: "pointer" }}>
                   {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
             </div>
 
             {/* Company B */}
-            <div style={{ background:"#eff6ff", border:"1px solid rgba(122,171,207,.22)", borderTop:"2px solid #7aabcf", borderRadius:10, padding:20 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
-                <div style={{ width:28, height:28, borderRadius:6, border:"1px solid rgba(122,171,207,.4)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Libre Baskerville',serif", fontSize:14, fontWeight:700, color:"#7aabcf" }}>B</div>
+            <div style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", borderTop: "3px solid #1d4ed8", borderRadius: 12, padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, background: "#dbeafe", border: "1.5px solid #93c5fd", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Libre Baskerville',serif", fontSize: 14, fontWeight: 700, color: "#1d4ed8" }}>B</div>
                 <div>
-                  <div style={{ fontSize:11, fontWeight:700, color:"#7aabcf", textTransform:"uppercase", letterSpacing:"1.5px" }}>Company B</div>
-                  <div style={{ fontSize:10, color:"rgba(122,171,207,.5)", marginTop:1 }}>Second filing</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "1.2px" }}>Company B</div>
+                  <div style={{ fontSize: 10, color: "#1e40af", marginTop: 1 }}>Second filing</div>
                 </div>
               </div>
-              <div style={{ marginBottom:12 }}>
-                <label style={{ ...labelBase, color:"rgba(122,171,207,.6)" }}>Company name or ticker</label>
-                <input value={companyB} onChange={e => setCompanyB(e.target.value)} placeholder="e.g. Alphabet, JPMorgan, MSFT" style={{ ...inputBase, borderColor:"rgba(122,171,207,.25)" }} />
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ ...labelStyle, color: "#1e40af" }}>Company name or ticker</label>
+                <input value={companyB} onChange={e => setCompanyB(e.target.value)} placeholder="e.g. Alphabet, JPMorgan, MSFT"
+                  style={{ ...inputStyle, borderColor: "#93c5fd" }} />
               </div>
               <div>
-                <label style={{ ...labelBase, color:"rgba(122,171,207,.6)" }}>Fiscal Year</label>
-                <select value={yearB} onChange={e => setYearB(e.target.value)} style={{ ...inputBase, borderColor:"rgba(122,171,207,.25)", cursor:"pointer" }}>
+                <label style={{ ...labelStyle, color: "#1e40af" }}>Fiscal Year</label>
+                <select value={yearB} onChange={e => setYearB(e.target.value)} style={{ ...inputStyle, borderColor: "#93c5fd", cursor: "pointer" }}>
                   {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
@@ -418,43 +382,49 @@ export default function Home() {
           </div>
 
           {/* Note section */}
-          <div style={{ marginBottom:24 }}>
-            <label style={{ ...labelBase }}>Note section <span style={{ color:"rgba(143,163,184,.4)", textTransform:"none", letterSpacing:0, fontWeight:400, fontSize:11 }}>— 16 categories</span></label>
-            <select value={note} onChange={e => setNote(e.target.value)} style={{ ...inputBase, cursor:"pointer" }}>
+          <div style={{ marginBottom: 22 }}>
+            <label style={labelStyle}>
+              Note section
+              <span style={{ marginLeft: 6, color: "#d1d5db", fontWeight: 400, textTransform: "none", letterSpacing: 0, fontSize: 11 }}>— 16 categories available</span>
+            </label>
+            <select value={note} onChange={e => setNote(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
               <option value="">— Select the note section to compare —</option>
               {NOTE_SECTIONS.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
 
-          {/* CTA */}
-          <button className="btn" onClick={compare} disabled={phase==="loading"||!companyA.trim()||!companyB.trim()||!note} style={{
-            width:"100%",
-            background: phase==="loading" ? "#f9fafb" : `linear-gradient(135deg, ${GOLD} 0%, ${GOLD2} 100%)`,
-            color: phase==="loading" ? MUTED : NAVY,
-            borderRadius:8, padding:"15px 0", fontSize:15,
-            fontWeight:700, letterSpacing:".5px",
-            boxShadow: phase!=="loading" ? "0 4px 24px rgba(196,151,74,.25)" : "none",
-          }}>
-            {phase==="loading"
-              ? <><span className="spin" style={{ marginRight:10 }}>⟳</span>Analyzing — typically 15 seconds…</>
+          <button className="btn" onClick={compare}
+            disabled={phase === "loading" || !companyA.trim() || !companyB.trim() || !note}
+            style={{
+              width: "100%",
+              background: phase === "loading" ? "#f3f4f6" : "linear-gradient(135deg,#d97706 0%,#b45309 100%)",
+              color: phase === "loading" ? "#9ca3af" : "#ffffff",
+              borderRadius: 10, padding: "15px 0", fontSize: 15, fontWeight: 800,
+              boxShadow: phase !== "loading" ? "0 4px 16px rgba(217,119,6,.3)" : "none",
+            }}>
+            {phase === "loading"
+              ? <><span className="spin" style={{ marginRight: 8 }}>⟳</span>Reading the filings — typically 20 seconds…</>
               : "Run Comparison →"}
           </button>
 
           {phase === "idle" && (
-            <p style={{ textAlign:"center", marginTop:12, fontSize:12, color:"rgba(143,163,184,.4)", letterSpacing:".3px" }}>
-              Any US-listed public company · Results in approximately 15 seconds
+            <p style={{ textAlign: "center", marginTop: 10, fontSize: 12, color: "#9ca3af" }}>
+              Reads actual 10-K filing text from SEC EDGAR · Any US-listed public company
             </p>
           )}
         </div>
 
         {/* ── ERROR ────────────────────────────────────────────────────────── */}
         {phase === "error" && (
-          <div className="fadeup" style={{ background:"rgba(196,80,70,.08)", border:"1px solid rgba(196,80,70,.25)", borderLeft:"3px solid #c45046", borderRadius:10, padding:"18px 22px", marginBottom:20, display:"flex", gap:14 }}>
-            <span style={{ fontSize:18, flexShrink:0 }}>⚠</span>
+          <div className="fadeup" style={{ background: "#fef2f2", border: "1.5px solid #fecaca", borderLeft: "3px solid #dc2626", borderRadius: 10, padding: "18px 22px", marginBottom: 20, display: "flex", gap: 14 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
             <div>
-              <div style={{ fontSize:14, fontWeight:700, color:"#e8938d", marginBottom:4 }}>An error occurred</div>
-              <div style={{ fontSize:13, color:"rgba(232,147,141,.7)", lineHeight:1.6 }}>{errMsg}</div>
-              <button className="btn" onClick={() => setPhase("idle")} style={{ marginTop:10, background:"transparent", border:"1px solid rgba(196,80,70,.3)", color:"#e8938d", borderRadius:6, padding:"5px 14px", fontSize:12 }}>← Try again</button>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#991b1b", marginBottom: 4 }}>Something went wrong</div>
+              <div style={{ fontSize: 13, color: "#b91c1c", lineHeight: 1.6 }}>{errMsg}</div>
+              <button className="btn" onClick={() => setPhase("idle")}
+                style={{ marginTop: 10, background: "#ffffff", border: "1.5px solid #fca5a5", color: RED, borderRadius: 6, padding: "5px 14px", fontSize: 12 }}>
+                ← Try again
+              </button>
             </div>
           </div>
         )}
@@ -462,82 +432,95 @@ export default function Home() {
         {/* ── RESULTS ──────────────────────────────────────────────────────── */}
         {phase === "done" && result && (
           <div>
-            {/* Result header */}
-            <div className="fadeup" style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:14, marginBottom:28 }}>
+            {/* Header */}
+            <div className="fadeup" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14, marginBottom: 20 }}>
               <div>
-                <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:28, fontWeight:700, color:TEXT, letterSpacing:"-.5px", lineHeight:1.15 }}>
-                  <span style={{ color:GOLD }}>{result.meta.companyA}</span>
-                  <span style={{ fontStyle:"italic", fontWeight:400, color:MUTED, margin:"0 16px", fontSize:20 }}>versus</span>
-                  <span style={{ color:"#7aabcf" }}>{result.meta.companyB}</span>
+                <div style={{ fontFamily: "'Libre Baskerville',serif", fontSize: 28, fontWeight: 700, color: "#111827", letterSpacing: "-.5px", lineHeight: 1.15 }}>
+                  <span style={{ color: "#b45309" }}>{result.meta.companyA}</span>
+                  <span style={{ fontStyle: "italic", fontWeight: 400, color: "#9ca3af", margin: "0 14px", fontSize: 20 }}>versus</span>
+                  <span style={{ color: "#1d4ed8" }}>{result.meta.companyB}</span>
                 </div>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:10, flexWrap:"wrap" }}>
-                  <span style={{ border:`1px solid rgba(196,151,74,.35)`, color:GOLD, padding:"2px 10px", borderRadius:4, fontSize:11, fontWeight:700, letterSpacing:".5px" }}>FY {result.meta.yearA}</span>
-                  <span style={{ color:MUTED, fontSize:11 }}>vs</span>
-                  <span style={{ border:"1px solid rgba(122,171,207,.35)", color:"#7aabcf", padding:"2px 10px", borderRadius:4, fontSize:11, fontWeight:700, letterSpacing:".5px" }}>FY {result.meta.yearB}</span>
-                  <span style={{ color:BORDER }}>·</span>
-                  <span style={{ color:MUTED, fontSize:13, fontStyle:"italic", fontFamily:"'Libre Baskerville',serif" }}>{result.meta.note}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <span style={{ background: "#fffbeb", color: "#b45309", border: "1.5px solid #fde68a", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700 }}>FY {result.meta.yearA}</span>
+                  <span style={{ color: "#d1d5db", fontSize: 11 }}>vs</span>
+                  <span style={{ background: "#eff6ff", color: "#1d4ed8", border: "1.5px solid #bfdbfe", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 700 }}>FY {result.meta.yearB}</span>
+                  <span style={{ color: "#e5e7eb" }}>·</span>
+                  <span style={{ color: "#6b7280", fontSize: 13, fontStyle: "italic", fontFamily: "'Libre Baskerville',serif" }}>{result.meta.note}</span>
                 </div>
               </div>
-              <button className="btn" onClick={() => { setPhase("idle"); setResult(null); setSentiment(null); setQaHistory([]); }} style={{ background:"transparent", border:`1px solid ${BORDER}`, color:MUTED, borderRadius:6, padding:"8px 16px", fontSize:12 }}>
+              <button className="btn" onClick={() => { setPhase("idle"); setResult(null); setSentiment(null); setQaHistory([]); }}
+                style={{ background: "#f9fafb", border: "1.5px solid #e5e7eb", color: "#6b7280", borderRadius: 8, padding: "8px 16px", fontSize: 12 }}>
                 ← New comparison
               </button>
             </div>
 
-            {/* Real filing source badge */}
-            <div className="fadeup" style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:18 }}>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:7, background:"#f0fdf4", border:"1px solid rgba(109,191,158,.25)", borderRadius:6, padding:"5px 12px" }}>
-                <span style={{ color:"#6dbf9e", fontSize:14 }}>✓</span>
-                <span style={{ fontSize:11, color:"#6dbf9e", fontWeight:700, letterSpacing:".5px" }}>From actual SEC EDGAR filings</span>
+            {/* Real filing badge */}
+            <div className="fadeup d1" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 6, padding: "5px 12px" }}>
+                <span style={{ color: "#059669", fontSize: 13 }}>✓</span>
+                <span style={{ fontSize: 11, color: "#059669", fontWeight: 700 }}>From actual SEC EDGAR 10-K filing text</span>
               </div>
               {result.sourceA && (
-                <a href={result.sourceA} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, color:"rgba(196,151,74,.7)", border:"1px solid rgba(196,151,74,.2)", borderRadius:5, padding:"4px 10px" }}>
-                  {result.meta?.companyA} filing ↗
+                <a href={result.sourceA} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 11, color: "#b45309", border: "1.5px solid #fde68a", borderRadius: 5, padding: "4px 10px", background: "#fffbeb" }}>
+                  {result.meta.companyA} filing ↗
                 </a>
               )}
               {result.sourceB && (
-                <a href={result.sourceB} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, color:"rgba(122,171,207,.7)", border:"1px solid rgba(122,171,207,.2)", borderRadius:5, padding:"4px 10px" }}>
-                  {result.meta?.companyB} filing ↗
+                <a href={result.sourceB} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 11, color: "#1d4ed8", border: "1.5px solid #bfdbfe", borderRadius: 5, padding: "4px 10px", background: "#eff6ff" }}>
+                  {result.meta.companyB} filing ↗
                 </a>
               )}
             </div>
+
+            {/* Source warning */}
             {result.sourceNote && (
-              <div style={{ background:"#fffbeb", border:"1px solid rgba(196,151,74,.18)", borderRadius:8, padding:"10px 16px", marginBottom:14, fontSize:12, color:"rgba(196,151,74,.8)", lineHeight:1.6 }}>
+              <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 8, padding: "10px 16px", marginBottom: 14, fontSize: 12, color: "#92400e", lineHeight: 1.6 }}>
                 ⚠ {result.sourceNote}
               </div>
             )}
 
             {/* Key Insight */}
             {result.keyInsight && (
-              <div className="fadeup d1" style={{ background:"#fef9ec", border:`1px solid rgba(196,151,74,.2)`, borderLeft:`3px solid ${GOLD}`, borderRadius:10, padding:"16px 22px", marginBottom:20, display:"flex", gap:14 }}>
-                <span style={{ fontSize:18, flexShrink:0, color:GOLD }}>◈</span>
+              <div className="fadeup d1" style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderLeft: "4px solid #d97706", borderRadius: 10, padding: "16px 20px", marginBottom: 20, display: "flex", gap: 14 }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>💡</span>
                 <div>
-                  <div style={{ fontSize:9, color:"rgba(196,151,74,.6)", fontWeight:700, textTransform:"uppercase", letterSpacing:"2px", marginBottom:6 }}>Key Insight</div>
-                  <div style={{ fontSize:14, color:"#92400e", lineHeight:1.72 }}>{result.keyInsight}</div>
+                  <div style={{ fontSize: 9, color: "#92400e", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 6 }}>Key Insight</div>
+                  <div style={{ fontSize: 14, color: "#78350f", lineHeight: 1.72, fontWeight: 500 }}>{result.keyInsight}</div>
                 </div>
               </div>
             )}
 
             {/* Table */}
-            <div className="fadeup d2" style={{ borderRadius:10, overflow:"hidden", border:`1px solid ${BORDER}`, marginBottom:20 }}>
-              <div style={{ overflowX:"auto" }}>
+            <div className="fadeup d2" style={{ borderRadius: 12, overflow: "hidden", border: "1.5px solid #e5e7eb", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,.06)" }}>
+              <div style={{ overflowX: "auto" }}>
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ background:STEEL, padding:"13px 20px", textAlign:"left", fontSize:9, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"1.5px", borderBottom:`1px solid ${BORDER}`, width:"24%" }}>Disclosure</th>
-                      <th style={{ background:"rgba(196,151,74,.08)", borderTop:`2px solid ${GOLD}`, padding:"13px 20px", textAlign:"left", fontSize:9, color:GOLD, fontWeight:700, textTransform:"uppercase", letterSpacing:"1.5px", borderBottom:`1px solid ${BORDER}` }}>
+                      <th style={{ background: "#f9fafb", padding: "13px 20px", textAlign: "left", fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.2px", borderBottom: "1.5px solid #e5e7eb", width: "24%" }}>
+                        Disclosure
+                      </th>
+                      <th style={{ background: "#fffbeb", borderTop: "3px solid #d97706", padding: "13px 20px", textAlign: "left", fontSize: 10, color: "#b45309", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.2px", borderBottom: "1.5px solid #e5e7eb" }}>
                         {result.meta.companyA} · FY{result.meta.yearA}
                       </th>
-                      <th style={{ background:"rgba(122,171,207,.08)", borderTop:"2px solid #7aabcf", padding:"13px 20px", textAlign:"left", fontSize:9, color:"#7aabcf", fontWeight:700, textTransform:"uppercase", letterSpacing:"1.5px", borderBottom:`1px solid ${BORDER}` }}>
+                      <th style={{ background: "#eff6ff", borderTop: "3px solid #1d4ed8", padding: "13px 20px", textAlign: "left", fontSize: 10, color: "#1d4ed8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.2px", borderBottom: "1.5px solid #e5e7eb" }}>
                         {result.meta.companyB} · FY{result.meta.yearB}
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {result.rows.map((row,i) => (
+                    {result.rows.map((row, i) => (
                       <tr key={i} className="trow">
-                        <td style={{ padding:"13px 20px", fontSize:12, fontWeight:600, color:MUTED, fontStyle:"italic", fontFamily:"'Libre Baskerville',serif", borderBottom:i<result.rows.length-1?"1px solid #f0f0f0"`1px solid #f9fafb`:"none", background:"#fafafa" }}>{row.dimension}</td>
-                        <td style={{ padding:"13px 20px", fontSize:13, color:TEXT, lineHeight:1.72, borderBottom:i<result.rows.length-1?"1px solid #f0f0f0"`1px solid #f9fafb`:"none", borderLeft:`1px solid rgba(196,151,74,.08)`, background:i%2===0?"#fffdf7":"#ffffff" }}>{row.a}</td>
-                        <td style={{ padding:"13px 20px", fontSize:13, color:TEXT, lineHeight:1.72, borderBottom:i<result.rows.length-1?"1px solid #f0f0f0"`1px solid #f9fafb`:"none", borderLeft:"1px solid rgba(122,171,207,.08)", background:i%2===0?"#f5f9ff":"#ffffff" }}>{row.b}</td>
+                        <td style={{ padding: "13px 20px", fontSize: 12, fontWeight: 700, color: "#6b7280", fontStyle: "italic", fontFamily: "'Libre Baskerville',serif", borderBottom: i < result.rows.length - 1 ? "1px solid #f3f4f6" : "none", background: "#fafafa" }}>
+                          {row.dimension}
+                        </td>
+                        <td style={{ padding: "13px 20px", fontSize: 13, color: "#1f2937", lineHeight: 1.72, borderBottom: i < result.rows.length - 1 ? "1px solid #f3f4f6" : "none", borderLeft: "2px solid #fde68a", background: i % 2 === 0 ? "#fffdf7" : "#ffffff" }}>
+                          {row.a}
+                        </td>
+                        <td style={{ padding: "13px 20px", fontSize: 13, color: "#1f2937", lineHeight: 1.72, borderBottom: i < result.rows.length - 1 ? "1px solid #f3f4f6" : "none", borderLeft: "2px solid #bfdbfe", background: i % 2 === 0 ? "#f5f9ff" : "#ffffff" }}>
+                          {row.b}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -547,53 +530,58 @@ export default function Home() {
 
             {/* Summary */}
             {result.summary && (
-              <div className="fadeup d3" style={{ background:"#f9fafb", border:`1px solid ${BORDER}`, borderLeft:"3px solid rgba(122,171,207,.5)", borderRadius:10, padding:"18px 22px", marginBottom:20 }}>
-                <div style={{ fontSize:9, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"2px", marginBottom:10 }}>Analyst Summary</div>
-                <p style={{ fontSize:14, color:DIMMED, lineHeight:1.9, fontFamily:"'Libre Baskerville',serif" }}>{result.summary}</p>
+              <div className="fadeup d3" style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderLeft: "4px solid #1d4ed8", borderRadius: 10, padding: "18px 22px", marginBottom: 20, boxShadow: "0 1px 6px rgba(0,0,0,.05)" }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 10 }}>Analyst Summary</div>
+                <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.88, fontFamily: "'Libre Baskerville',serif" }}>{result.summary}</p>
               </div>
             )}
 
-            {/* Actions */}
-            <div className="fadeup d4" style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:24 }}>
-              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)} style={{ background:"transparent", border:`1px solid ${BORDER2}`, color:GOLD, borderRadius:7, padding:"10px 20px", fontSize:13 }}>
-                ↓ Download for Excel
+            {/* Action bar */}
+            <div className="fadeup d4" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
+              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)}
+                style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", color: GREEN, borderRadius: 8, padding: "10px 20px", fontSize: 13 }}>
+                ⬇ Download for Excel
               </button>
-              <button className="btn" onClick={runSentiment} disabled={sentPhase==="loading"} style={{ background:"transparent", border:`1px solid ${BORDER}`, color:MUTED, borderRadius:7, padding:"10px 20px", fontSize:13 }}>
-                {sentPhase==="loading" ? <><span className="spin">⟳</span>&nbsp;Scoring…</> : "Score the Tone"}
+              <button className="btn" onClick={runSentiment} disabled={sentPhase === "loading"}
+                style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", color: BLUE, borderRadius: 8, padding: "10px 20px", fontSize: 13 }}>
+                {sentPhase === "loading" ? <><span className="spin">⟳</span>&nbsp;Scoring…</> : "🎭 Score the Tone"}
               </button>
-              <button className="btn" onClick={() => setQaOpen(!qaOpen)} style={{ background:qaOpen?"rgba(196,151,74,.1)":"transparent", border:`1px solid ${qaOpen?BORDER2:BORDER}`, color:qaOpen?GOLD:MUTED, borderRadius:7, padding:"10px 20px", fontSize:13 }}>
-                {qaOpen ? "Close Q&A" : "Ask the Data"}
+              <button className="btn" onClick={() => setQaOpen(!qaOpen)}
+                style={{ background: qaOpen ? "#f0fdf4" : "#f9fafb", border: qaOpen ? "1.5px solid #bbf7d0" : "1.5px solid #e5e7eb", color: qaOpen ? GREEN : "#374151", borderRadius: 8, padding: "10px 20px", fontSize: 13 }}>
+                💬 {qaOpen ? "Close Q&A" : "Ask the Data"}
               </button>
             </div>
 
             {/* Sentiment */}
-            {sentPhase==="done" && sentiment && (
-              <div className="fadeup" style={{ background:STEEL, border:`1px solid ${BORDER}`, borderRadius:12, padding:24, marginBottom:20 }}>
-                <div style={{ fontSize:9, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"2px", marginBottom:20 }}>Tone & Language Analysis</div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
+            {sentPhase === "done" && sentiment && (
+              <div className="fadeup" style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: 24, marginBottom: 20, boxShadow: "0 1px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 18 }}>Tone & Language Analysis</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
                   {[
-                    { company:result.meta.companyA, year:result.meta.yearA, overall:sentiment.overallA, score:Number(sentiment.scoreA), summary:sentiment.summaryA, color:GOLD, border:"rgba(196,151,74,.2)" },
-                    { company:result.meta.companyB, year:result.meta.yearB, overall:sentiment.overallB, score:Number(sentiment.scoreB), summary:sentiment.summaryB, color:"#7aabcf", border:"rgba(122,171,207,.2)" },
-                  ].map((s,i) => (
-                    <div key={i} style={{ background:"#f9fafb", border:"1px solid #e2e8f0"`1px solid ${s.border}`, borderRadius:10, padding:18 }}>
-                      <div style={{ fontSize:11, color:s.color, fontWeight:700, marginBottom:12, letterSpacing:".5px" }}>{s.company} · FY{s.year}</div>
-                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                        <span style={{ border:`1px solid ${sentimentColor(s.overall)}50`, color:sentimentColor(s.overall), borderRadius:4, padding:"2px 10px", fontSize:11, fontWeight:700, letterSpacing:".5px" }}>{s.overall}</span>
+                    { company: result.meta.companyA, year: result.meta.yearA, overall: sentiment.overallA, score: Number(sentiment.scoreA), summary: sentiment.summaryA, color: "#b45309", bg: "#fffbeb", border: "#fde68a" },
+                    { company: result.meta.companyB, year: result.meta.yearB, overall: sentiment.overallB, score: Number(sentiment.scoreB), summary: sentiment.summaryB, color: "#1d4ed8", bg: "#eff6ff", border: "#bfdbfe" },
+                  ].map((s, i) => (
+                    <div key={i} style={{ background: s.bg, border: `1.5px solid ${s.border}`, borderRadius: 10, padding: 18 }}>
+                      <div style={{ fontSize: 12, color: s.color, fontWeight: 700, marginBottom: 10 }}>{s.company} · FY{s.year}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                        <span style={{ background: "#ffffff", color: sentimentColor(s.overall), border: `1.5px solid ${sentimentColor(s.overall)}`, borderRadius: 5, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>
+                          {s.overall}
+                        </span>
                       </div>
                       <ScoreBar score={s.score} color={s.color} />
-                      <p style={{ marginTop:12, fontSize:13, color:DIMMED, lineHeight:1.72 }}>{s.summary}</p>
+                      <p style={{ marginTop: 12, fontSize: 13, color: "#374151", lineHeight: 1.7 }}>{s.summary}</p>
                     </div>
                   ))}
                 </div>
                 {sentiment.comparison && (
-                  <p style={{ fontSize:13, color:DIMMED, lineHeight:1.8, marginBottom:sentiment.redflags&&sentiment.redflags!=="null"&&sentiment.redflags!=="None identified"?14:0 }}>
-                    <span style={{ fontSize:9, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"1.5px", marginRight:8 }}>Comparison:</span>
+                  <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.78, marginBottom: sentiment.redflags && sentiment.redflags !== "null" && sentiment.redflags !== "None identified" ? 14 : 0 }}>
+                    <span style={{ fontSize: 9, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.2px", marginRight: 8 }}>Comparison:</span>
                     {sentiment.comparison}
                   </p>
                 )}
-                {sentiment.redflags && sentiment.redflags!=="null" && sentiment.redflags!=="None identified" && (
-                  <div style={{ background:"rgba(196,80,70,.07)", border:"1px solid rgba(196,80,70,.2)", borderLeft:"3px solid #c45046", borderRadius:7, padding:"12px 16px", fontSize:13, color:"#e8938d", lineHeight:1.65, marginTop:6 }}>
-                    ⚑ <strong>Red flags:</strong> {sentiment.redflags}
+                {sentiment.redflags && sentiment.redflags !== "null" && sentiment.redflags !== "None identified" && (
+                  <div style={{ background: "#fef2f2", border: "1.5px solid #fecaca", borderLeft: "3px solid #dc2626", borderRadius: 7, padding: "12px 16px", fontSize: 13, color: "#991b1b", lineHeight: 1.65 }}>
+                    🚩 <strong>Red flags:</strong> {sentiment.redflags}
                   </div>
                 )}
               </div>
@@ -601,25 +589,32 @@ export default function Home() {
 
             {/* Q&A */}
             {qaOpen && (
-              <div className="fadeup" style={{ background:STEEL, border:`1px solid ${BORDER}`, borderRadius:12, padding:24, marginBottom:20 }}>
-                <div style={{ fontSize:9, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"2px", marginBottom:6 }}>Interrogate the Data</div>
-                <div style={{ fontSize:13, color:MUTED, marginBottom:20 }}>Ask anything about this comparison. Answers are grounded in the filing data.</div>
+              <div className="fadeup" style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 14, padding: 24, marginBottom: 20 }}>
+                <div style={{ fontSize: 9, color: "#065f46", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 6 }}>Interrogate the Data</div>
+                <div style={{ fontSize: 13, color: "#047857", marginBottom: 20 }}>Ask anything about this comparison. Answers grounded in the actual filing text.</div>
+
                 {qaHistory.length > 0 && (
-                  <div style={{ display:"flex", flexDirection:"column", gap:14, marginBottom:20 }}>
-                    {qaHistory.map((item,i) => (
-                      <div key={i} style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                        <div style={{ display:"flex", justifyContent:"flex-end" }}>
-                          <div className="bubble-q" style={{ maxWidth:"80%" }}>{item.q}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+                    {qaHistory.map((item, i) => (
+                      <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <div style={{ background: "#dcfce7", border: "1.5px solid #bbf7d0", borderRadius: "12px 12px 3px 12px", padding: "10px 14px", fontSize: 14, color: "#065f46", lineHeight: 1.6, maxWidth: "80%" }}>{item.q}</div>
                         </div>
-                        <div className="bubble-a">{item.a}</div>
+                        <div style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderRadius: "3px 12px 12px 12px", padding: "10px 14px", fontSize: 14, color: "#374151", lineHeight: 1.8, boxShadow: "0 1px 4px rgba(0,0,0,.05)" }}>{item.a}</div>
                       </div>
                     ))}
                   </div>
                 )}
-                <div style={{ display:"flex", gap:10 }}>
-                  <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => e.key==="Enter"&&qaPhase!=="loading"&&askQuestion()} placeholder="e.g. Which company carries more concentration risk?" disabled={qaPhase==="loading"} style={{ ...inputBase, flex:1, borderColor:"rgba(196,151,74,.2)" }} />
-                  <button className="btn" onClick={askQuestion} disabled={qaPhase==="loading"||!question.trim()} style={{ background:qaPhase==="loading"?"rgba(196,151,74,.1)":`linear-gradient(135deg,${GOLD},${GOLD2})`, color:qaPhase==="loading"?GOLD:NAVY, borderRadius:8, padding:"11px 20px", fontSize:13, flexShrink:0 }}>
-                    {qaPhase==="loading" ? <span className="spin">⟳</span> : "Ask"}
+
+                <div style={{ display: "flex", gap: 10 }}>
+                  <input value={question} onChange={e => setQuestion(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && qaPhase !== "loading" && askQuestion()}
+                    placeholder="e.g. Which company has more acquisition risk? What changed most between the years?"
+                    disabled={qaPhase === "loading"}
+                    style={{ ...inputStyle, flex: 1, borderColor: "#6ee7b7" }} />
+                  <button className="btn" onClick={askQuestion} disabled={qaPhase === "loading" || !question.trim()}
+                    style={{ background: qaPhase === "loading" ? "#d1fae5" : "#059669", color: qaPhase === "loading" ? "#059669" : "#ffffff", borderRadius: 8, padding: "11px 20px", fontSize: 13, flexShrink: 0 }}>
+                    {qaPhase === "loading" ? <span className="spin">⟳</span> : "Ask →"}
                   </button>
                 </div>
               </div>
@@ -628,11 +623,12 @@ export default function Home() {
         )}
 
         {/* ── FOOTER ───────────────────────────────────────────────────────── */}
-        <hr className="gold-rule" style={{ marginBottom:20 }} />
-        <p style={{ fontSize:11, color:"rgba(143,163,184,.4)", lineHeight:1.85, textAlign:"center", letterSpacing:".2px" }}>
-          10-K Compare fetches and parses actual 10-K filings directly from <a href="https://www.sec.gov/edgar/search/" target="_blank" rel="noopener noreferrer" style={{ color:"rgba(196,151,74,.5)" }}>SEC EDGAR</a>.
-          Claude AI reads the real filing text — it does not rely on training data recall.
-          Always review the original filing before making investment or business decisions. Not financial advice.
+        <hr className="gold-rule" style={{ marginBottom: 20 }} />
+        <p style={{ fontSize: 11, color: "#9ca3af", lineHeight: 1.85, textAlign: "center" }}>
+          10-K Compare fetches and parses actual 10-K filing text directly from SEC EDGAR via sec-api.io.
+          Claude AI reads the real filing — it does not rely on training data recall for comparisons.
+          Always review the source filing before making investment decisions. Not financial advice. ·{" "}
+          <a href="https://www.sec.gov/edgar/search/" target="_blank" rel="noopener noreferrer">SEC EDGAR</a>
         </p>
       </main>
     </>
