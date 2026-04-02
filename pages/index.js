@@ -50,7 +50,7 @@ function exportCSV(rows, meta) {
 function ScoreBar({ score, color }) {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
-      <div style={{ flex:1, height:3, background:"linear-gradient(180deg, #f0f4f8 0%, #f5f6f8 100%)""#e2e8f0", borderRadius:100, overflow:"hidden" }}>
+      <div style={{ flex:1, height:3, background:"#e2e8f0", borderRadius:100, overflow:"hidden" }}>
         <div style={{ height:"100%", width:`${(score/10)*100}%`, background:color, borderRadius:100, transition:"width 1s ease" }} />
       </div>
       <span style={{ fontSize:12, fontWeight:600, color, minWidth:32, textAlign:"right", fontFamily:"'Libre Baskerville',serif" }}>{score}<span style={{ fontSize:10, opacity:.5, fontWeight:400 }}>/10</span></span>
