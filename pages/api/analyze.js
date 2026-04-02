@@ -114,12 +114,49 @@ export default async function handler(req, res) {
 
   // ── Fetch Item 8 text via sec-api.io extractor ────────────────────────────
   async function fetchItem8(filingUrl) {
-    const url = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=text&token=${secApiKey}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`sec-api.io extractor returned HTTP ${resp.status} for ${filingUrl}`);
-    const text = await resp.text();
-    if (!text || text.trim().length < 200) throw new Error("Item 8 came back empty — the filing may not be supported.");
-    return text;
+    // First try the sec-api.io extractor for Item 8
+    const extractUrl = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=text&token=${secApiKey}`;
+    const resp = await fetch(extractUrl);
+    if (resp.ok) {
+      const text = await resp.text();
+      // If Item 8 is substantial, use it
+      if (text && text.trim().length > 5000) return text;
+      console.log(`[DEBUG] Item 8 too short (${text.length} chars), falling back to full filing`);
+    }
+
+    // Fallback: fetch the full filing HTML and strip to text
+    // Some companies file financials as separate exhibits — Item 8 just says "see page F-X"
+    console.log(`[DEBUG] Fetching full filing from: ${filingUrl}`);
+    const fullResp = await fetch(filingUrl, {
+      headers: { "User-Agent": "10KCompare research@10kcompare.app" },
+    });
+    if (!fullResp.ok) throw new Error(`Could not fetch filing document (HTTP ${fullResp.status})`);
+
+    // Read up to 15MB
+    const buffer = await fullResp.arrayBuffer();
+    const raw = new TextDecoder().decode(buffer.slice(0, 15_000_000));
+
+    // Strip HTML tags to get plain text
+    const plainText = raw
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#\d+;/g, " ")
+      .replace(/\s{3,}/g, "
+
+")
+      .trim();
+
+    if (!plainText || plainText.length < 1000) {
+      throw new Error("Could not extract filing text. The document may be in an unsupported format.");
+    }
+
+    console.log(`[DEBUG] Full filing text length: ${plainText.length}`);
+    return plainText;
   }
 
   // ── ACTIONS ───────────────────────────────────────────────────────────────
