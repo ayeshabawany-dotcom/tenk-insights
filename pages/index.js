@@ -50,7 +50,7 @@ function exportCSV(rows, meta) {
 function ScoreBar({ score, color }) {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
-      <div style={{ flex:1, height:3, background:"rgba(255,255,255,.12)", borderRadius:100, overflow:"hidden" }}>
+      <div style={{ flex:1, height:3, background:"linear-gradient(180deg, #f0f4f8 0%, #f5f6f8 100%)""#e2e8f0", borderRadius:100, overflow:"hidden" }}>
         <div style={{ height:"100%", width:`${(score/10)*100}%`, background:color, borderRadius:100, transition:"width 1s ease" }} />
       </div>
       <span style={{ fontSize:12, fontWeight:600, color, minWidth:32, textAlign:"right", fontFamily:"'Libre Baskerville',serif" }}>{score}<span style={{ fontSize:10, opacity:.5, fontWeight:400 }}>/10</span></span>
@@ -134,20 +134,20 @@ export default function Home() {
   };
 
   // Dynasty-inspired palette
-  const NAVY    = "#0c1a2e";
-  const NAVY2   = "#122036";
+  const NAVY    = "#ffffff";
+  const NAVY2   = "#f8f9fa";
   const GOLD    = "#c4974a";  // muted champagne gold
   const GOLD2   = "#a87d3a";
-  const STEEL   = "#1e3050";  // mid-navy for cards
-  const BORDER  = "rgba(255,255,255,.1)";
-  const BORDER2 = "rgba(196,151,74,.3)"; // gold border
-  const TEXT    = "#f0ede8";  // warm white
-  const MUTED   = "#8fa3b8";  // blue-grey
-  const DIMMED  = "rgba(240,237,232,.45)";
+  const STEEL   = "#f0f4f8";  // mid-navy for cards
+  const BORDER  = "#dde1e7";
+  const BORDER2 = "rgba(196,151,74,.6)"; // gold border
+  const TEXT    = "#111827";  // warm white
+  const MUTED   = "#6b7280";  // blue-grey
+  const DIMMED  = "#374151";
 
   const inputBase = {
     width:"100%",
-    background:"rgba(255,255,255,.06)",
+    background:"#ffffff",
     border:`1px solid ${BORDER}`,
     borderRadius:8,
     padding:"12px 16px",
@@ -189,14 +189,7 @@ export default function Home() {
           min-height:100vh;
         }
         /* Subtle diagonal texture */
-        body::before {
-          content:'';
-          position:fixed; inset:0;
-          background:
-            radial-gradient(ellipse 60% 50% at 80% 10%, rgba(196,151,74,.06) 0%, transparent 60%),
-            radial-gradient(ellipse 50% 60% at 10% 90%, rgba(30,48,80,.8) 0%, transparent 60%);
-          pointer-events:none; z-index:0;
-        }
+        body::before { display:none; }
         * { position:relative; z-index:1; }
         ::selection { background:rgba(196,151,74,.25); }
         input::placeholder, textarea::placeholder { color:rgba(143,163,184,.5); }
@@ -212,8 +205,8 @@ export default function Home() {
         .btn:disabled { opacity:.35; cursor:not-allowed; transform:none!important; }
         .chip:hover { border-color:${GOLD}!important; color:${GOLD}!important; }
         .chip { transition:all .18s; }
-        .trow:hover > td { background:rgba(255,255,255,.025)!important; }
-        .feat-card:hover { border-color:rgba(196,151,74,.4)!important; transform:translateY(-3px); }
+        .trow:hover > td { background:#f9fafb!important; }
+        .feat-card:hover { border-color:#d97706!important; transform:translateY(-3px); }
         .feat-card { transition:all .2s; }
 
         @keyframes fadeUp   { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
@@ -229,7 +222,7 @@ export default function Home() {
         .d4{animation-delay:.28s}.d5{animation-delay:.35s}
 
         .gold-shimmer {
-          background:linear-gradient(90deg, #c4974a 0%, #e8c87a 30%, #c4974a 55%, #9a7232 80%, #c4974a 100%);
+          background:linear-gradient(90deg,#b45309 0%,#d97706 30%,#b45309 55%,#92400e 80%,#b45309 100%);
           background-size:280% auto;
           -webkit-background-clip:text; -webkit-text-fill-color:transparent;
           background-clip:text; animation:shimmer 5s ease infinite;
@@ -248,7 +241,7 @@ export default function Home() {
           line-height:1.65; animation:slideL .3s ease forwards;
         }
         .bubble-a {
-          background:rgba(255,255,255,.04);
+          background:#f9fafb;
           border:1px solid ${BORDER};
           border-radius:3px 12px 12px 12px;
           padding:12px 16px; font-size:14px; color:${DIMMED};
@@ -257,7 +250,7 @@ export default function Home() {
 
         ::-webkit-scrollbar { width:4px; height:4px; }
         ::-webkit-scrollbar-track { background:transparent; }
-        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:2px; }
+        ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:2px; }
         table { border-collapse:collapse; width:100%; }
         th, td { vertical-align:top; }
         a { color:${GOLD}; text-decoration:none; }
@@ -265,10 +258,10 @@ export default function Home() {
       `}</style>
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
-      <header style={{ background:NAVY2, borderBottom:"1px solid rgba(255,255,255,.07)", padding:"0 40px", height:68, display:"flex", alignItems:"center", gap:16, position:"sticky", top:0, zIndex:50 }}>
+      <header style={{ background:NAVY2, borderBottom:"1px solid #e2e8f0""1px solid #e2e8f0", padding:"0 40px", height:68, display:"flex", alignItems:"center", gap:16, position:"sticky", top:0, zIndex:50 }}>
         <div style={{ display:"flex", alignItems:"center", gap:14 }}>
           {/* Wordmark */}
-          <div style={{ borderRight:"1px solid rgba(255,255,255,.1)", paddingRight:14, marginRight:2 }}>
+          <div style={{ borderRight:"1px solid #dde1e7", paddingRight:14, marginRight:2 }}>
             <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:18, fontWeight:700, color:TEXT, letterSpacing:"-.2px", lineHeight:1.1 }}>10-K Compare</div>
             <div style={{ fontSize:9, color:MUTED, letterSpacing:"2px", textTransform:"uppercase", marginTop:3 }}>Filing Intelligence</div>
           </div>
@@ -295,7 +288,7 @@ export default function Home() {
 
       {/* ── HERO BAND ───────────────────────────────────────────────────────── */}
       {phase === "idle" && (
-        <div style={{ background:`linear-gradient(180deg, ${NAVY2} 0%, ${NAVY} 100%)`, borderBottom:`1px solid rgba(255,255,255,.06)`, padding:"80px 40px 72px", textAlign:"center" }}>
+        <div style={{ background:`linear-gradient(180deg, ${NAVY2} 0%, ${NAVY} 100%)`, borderBottom:`1px solid #f0f4f8`, padding:"80px 40px 72px", textAlign:"center" }}>
           <div className="fadeup">
             {/* Category label */}
             <div style={{ display:"inline-flex", alignItems:"center", gap:10, marginBottom:28 }}>
@@ -327,7 +320,7 @@ export default function Home() {
                 { val:"10", label:"Fiscal Years"    },
                 { val:"3",  label:"Analysis Modes"  },
               ].map((s,i) => (
-                <div key={i} style={{ padding:"14px 30px", borderRight:i<2?`1px solid ${BORDER}`:"none", textAlign:"center", background:"rgba(255,255,255,.025)" }}>
+                <div key={i} style={{ padding:"14px 30px", borderRight:i<2?`1px solid ${BORDER}`:"none", textAlign:"center", background:"#ffffff" }}>
                   <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:26, fontWeight:700, color:GOLD, lineHeight:1 }}>{s.val}</div>
                   <div style={{ fontSize:9, color:MUTED, textTransform:"uppercase", letterSpacing:"1.5px", marginTop:5, fontWeight:700 }}>{s.label}</div>
                 </div>
@@ -343,7 +336,7 @@ export default function Home() {
                 {EXAMPLE_PAIRS.map((ex,i) => (
                   <button key={i} className="chip btn" onClick={() => loadExample(ex)} style={{ background:"transparent", border:`1px solid ${BORDER}`, color:MUTED, borderRadius:6, padding:"8px 16px", fontSize:12, lineHeight:1.5 }}>
                     <span style={{ color:GOLD, fontWeight:700 }}>{ex.a} {ex.ya}</span>
-                    <span style={{ color:"rgba(255,255,255,.2)", margin:"0 7px" }}>vs</span>
+                    <span style={{ color:"#cbd5e1", margin:"0 7px" }}>vs</span>
                     <span style={{ color:"#7aabcf", fontWeight:700 }}>{ex.b} {ex.yb}</span>
                     <span style={{ display:"block", fontSize:10, color:"rgba(143,163,184,.5)", marginTop:2 }}>{ex.note}</span>
                   </button>
@@ -360,7 +353,7 @@ export default function Home() {
         {phase === "idle" && (
           <div className="fadeup d2" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:1, marginBottom:40, border:`1px solid ${BORDER}`, borderRadius:12, overflow:"hidden" }}>
             {FEATURES.map((f,i) => (
-              <div key={i} className="feat-card" style={{ background:STEEL, padding:"28px 24px", borderRight:i<2?`1px solid ${BORDER}`:"none" }}>
+              <div key={i} className="feat-card" style={{ background:"#f8f9fa", padding:"28px 24px", borderRight:i<2?`1px solid ${BORDER}`:"none" }}>
                 <div style={{ fontSize:22, marginBottom:14 }}>{f.icon}</div>
                 <div style={{ fontFamily:"'Libre Baskerville',serif", fontSize:16, fontWeight:700, color:TEXT, marginBottom:8, lineHeight:1.35 }}>{f.title}</div>
                 <div style={{ fontSize:13, color:MUTED, lineHeight:1.78 }}>{f.desc}</div>
@@ -382,7 +375,7 @@ export default function Home() {
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:20 }}>
 
             {/* Company A */}
-            <div style={{ background:"rgba(196,151,74,.06)", border:`1px solid rgba(196,151,74,.22)`, borderTop:`2px solid ${GOLD}`, borderRadius:10, padding:20 }}>
+            <div style={{ background:"#fffbeb", border:`1px solid rgba(196,151,74,.22)`, borderTop:`2px solid ${GOLD}`, borderRadius:10, padding:20 }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
                 <div style={{ width:28, height:28, borderRadius:6, border:`1px solid rgba(196,151,74,.4)`, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Libre Baskerville',serif", fontSize:14, fontWeight:700, color:GOLD }}>A</div>
                 <div>
@@ -403,7 +396,7 @@ export default function Home() {
             </div>
 
             {/* Company B */}
-            <div style={{ background:"rgba(122,171,207,.06)", border:"1px solid rgba(122,171,207,.22)", borderTop:"2px solid #7aabcf", borderRadius:10, padding:20 }}>
+            <div style={{ background:"#eff6ff", border:"1px solid rgba(122,171,207,.22)", borderTop:"2px solid #7aabcf", borderRadius:10, padding:20 }}>
               <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
                 <div style={{ width:28, height:28, borderRadius:6, border:"1px solid rgba(122,171,207,.4)", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Libre Baskerville',serif", fontSize:14, fontWeight:700, color:"#7aabcf" }}>B</div>
                 <div>
@@ -436,7 +429,7 @@ export default function Home() {
           {/* CTA */}
           <button className="btn" onClick={compare} disabled={phase==="loading"||!companyA.trim()||!companyB.trim()||!note} style={{
             width:"100%",
-            background: phase==="loading" ? "rgba(255,255,255,.04)" : `linear-gradient(135deg, ${GOLD} 0%, ${GOLD2} 100%)`,
+            background: phase==="loading" ? "#f9fafb" : `linear-gradient(135deg, ${GOLD} 0%, ${GOLD2} 100%)`,
             color: phase==="loading" ? MUTED : NAVY,
             borderRadius:8, padding:"15px 0", fontSize:15,
             fontWeight:700, letterSpacing:".5px",
@@ -492,7 +485,7 @@ export default function Home() {
 
             {/* Real filing source badge */}
             <div className="fadeup" style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:18 }}>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:7, background:"rgba(109,191,158,.08)", border:"1px solid rgba(109,191,158,.25)", borderRadius:6, padding:"5px 12px" }}>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:7, background:"#f0fdf4", border:"1px solid rgba(109,191,158,.25)", borderRadius:6, padding:"5px 12px" }}>
                 <span style={{ color:"#6dbf9e", fontSize:14 }}>✓</span>
                 <span style={{ fontSize:11, color:"#6dbf9e", fontWeight:700, letterSpacing:".5px" }}>From actual SEC EDGAR filings</span>
               </div>
@@ -508,18 +501,18 @@ export default function Home() {
               )}
             </div>
             {result.sourceNote && (
-              <div style={{ background:"rgba(196,151,74,.06)", border:"1px solid rgba(196,151,74,.18)", borderRadius:8, padding:"10px 16px", marginBottom:14, fontSize:12, color:"rgba(196,151,74,.8)", lineHeight:1.6 }}>
+              <div style={{ background:"#fffbeb", border:"1px solid rgba(196,151,74,.18)", borderRadius:8, padding:"10px 16px", marginBottom:14, fontSize:12, color:"rgba(196,151,74,.8)", lineHeight:1.6 }}>
                 ⚠ {result.sourceNote}
               </div>
             )}
 
             {/* Key Insight */}
             {result.keyInsight && (
-              <div className="fadeup d1" style={{ background:"rgba(196,151,74,.07)", border:`1px solid rgba(196,151,74,.2)`, borderLeft:`3px solid ${GOLD}`, borderRadius:10, padding:"16px 22px", marginBottom:20, display:"flex", gap:14 }}>
+              <div className="fadeup d1" style={{ background:"#fef9ec", border:`1px solid rgba(196,151,74,.2)`, borderLeft:`3px solid ${GOLD}`, borderRadius:10, padding:"16px 22px", marginBottom:20, display:"flex", gap:14 }}>
                 <span style={{ fontSize:18, flexShrink:0, color:GOLD }}>◈</span>
                 <div>
                   <div style={{ fontSize:9, color:"rgba(196,151,74,.6)", fontWeight:700, textTransform:"uppercase", letterSpacing:"2px", marginBottom:6 }}>Key Insight</div>
-                  <div style={{ fontSize:14, color:"#e8d5a8", lineHeight:1.72 }}>{result.keyInsight}</div>
+                  <div style={{ fontSize:14, color:"#92400e", lineHeight:1.72 }}>{result.keyInsight}</div>
                 </div>
               </div>
             )}
@@ -542,9 +535,9 @@ export default function Home() {
                   <tbody>
                     {result.rows.map((row,i) => (
                       <tr key={i} className="trow">
-                        <td style={{ padding:"13px 20px", fontSize:12, fontWeight:600, color:MUTED, fontStyle:"italic", fontFamily:"'Libre Baskerville',serif", borderBottom:i<result.rows.length-1?`1px solid rgba(255,255,255,.05)`:"none", background:"rgba(255,255,255,.015)" }}>{row.dimension}</td>
-                        <td style={{ padding:"13px 20px", fontSize:13, color:TEXT, lineHeight:1.72, borderBottom:i<result.rows.length-1?`1px solid rgba(255,255,255,.05)`:"none", borderLeft:`1px solid rgba(196,151,74,.08)`, background:i%2===0?"rgba(196,151,74,.025)":"transparent" }}>{row.a}</td>
-                        <td style={{ padding:"13px 20px", fontSize:13, color:TEXT, lineHeight:1.72, borderBottom:i<result.rows.length-1?`1px solid rgba(255,255,255,.05)`:"none", borderLeft:"1px solid rgba(122,171,207,.08)", background:i%2===0?"rgba(122,171,207,.025)":"transparent" }}>{row.b}</td>
+                        <td style={{ padding:"13px 20px", fontSize:12, fontWeight:600, color:MUTED, fontStyle:"italic", fontFamily:"'Libre Baskerville',serif", borderBottom:i<result.rows.length-1?"1px solid #f0f0f0"`1px solid #f9fafb`:"none", background:"#fafafa" }}>{row.dimension}</td>
+                        <td style={{ padding:"13px 20px", fontSize:13, color:TEXT, lineHeight:1.72, borderBottom:i<result.rows.length-1?"1px solid #f0f0f0"`1px solid #f9fafb`:"none", borderLeft:`1px solid rgba(196,151,74,.08)`, background:i%2===0?"#fffdf7":"#ffffff" }}>{row.a}</td>
+                        <td style={{ padding:"13px 20px", fontSize:13, color:TEXT, lineHeight:1.72, borderBottom:i<result.rows.length-1?"1px solid #f0f0f0"`1px solid #f9fafb`:"none", borderLeft:"1px solid rgba(122,171,207,.08)", background:i%2===0?"#f5f9ff":"#ffffff" }}>{row.b}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -554,7 +547,7 @@ export default function Home() {
 
             {/* Summary */}
             {result.summary && (
-              <div className="fadeup d3" style={{ background:"rgba(255,255,255,.03)", border:`1px solid ${BORDER}`, borderLeft:"3px solid rgba(122,171,207,.5)", borderRadius:10, padding:"18px 22px", marginBottom:20 }}>
+              <div className="fadeup d3" style={{ background:"#f9fafb", border:`1px solid ${BORDER}`, borderLeft:"3px solid rgba(122,171,207,.5)", borderRadius:10, padding:"18px 22px", marginBottom:20 }}>
                 <div style={{ fontSize:9, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"2px", marginBottom:10 }}>Analyst Summary</div>
                 <p style={{ fontSize:14, color:DIMMED, lineHeight:1.9, fontFamily:"'Libre Baskerville',serif" }}>{result.summary}</p>
               </div>
@@ -582,7 +575,7 @@ export default function Home() {
                     { company:result.meta.companyA, year:result.meta.yearA, overall:sentiment.overallA, score:Number(sentiment.scoreA), summary:sentiment.summaryA, color:GOLD, border:"rgba(196,151,74,.2)" },
                     { company:result.meta.companyB, year:result.meta.yearB, overall:sentiment.overallB, score:Number(sentiment.scoreB), summary:sentiment.summaryB, color:"#7aabcf", border:"rgba(122,171,207,.2)" },
                   ].map((s,i) => (
-                    <div key={i} style={{ background:"rgba(255,255,255,.03)", border:`1px solid ${s.border}`, borderRadius:10, padding:18 }}>
+                    <div key={i} style={{ background:"#f9fafb", border:"1px solid #e2e8f0"`1px solid ${s.border}`, borderRadius:10, padding:18 }}>
                       <div style={{ fontSize:11, color:s.color, fontWeight:700, marginBottom:12, letterSpacing:".5px" }}>{s.company} · FY{s.year}</div>
                       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
                         <span style={{ border:`1px solid ${sentimentColor(s.overall)}50`, color:sentimentColor(s.overall), borderRadius:4, padding:"2px 10px", fontSize:11, fontWeight:700, letterSpacing:".5px" }}>{s.overall}</span>
