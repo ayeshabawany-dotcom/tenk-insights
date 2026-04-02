@@ -118,137 +118,84 @@ export default async function handler(req, res) {
     return text;
   }
 
-  // ── Step 1: Ask Claude to find the correct note title ─────────────────────
-  // Uses the first ~4000 chars of Item 8 (table of contents area)
-  async function findNoteTitle(item8Text, noteKeyword, companyName) {
-    const tocSection = item8Text.slice(0, 4000);
+  // ── Claude-powered note finder + extractor ──────────────────────────────
+  // Replaces brittle regex extraction — Claude reads Item 8 and returns
+  // exactly the right section text, regardless of how the company named it.
+  async function extractNoteViaClaude(item8Text, noteKeyword, companyName) {
+    // Send up to 12,000 chars of Item 8 — enough to cover most notes
+    // For very long filings we send in two windows if first attempt fails
+    const chunk1 = item8Text.slice(0, 12000);
 
-    const prompt = `You are reading the beginning of Item 8 (Financial Statements and Supplementary Data) from ${companyName}'s 10-K annual report.
+    const prompt = `You are a technical accounting expert reading Item 8 of a 10-K annual filing for ${companyName}.
 
-The user wants to find the note that covers: "${noteKeyword}"
+The user wants to find and extract the note section covering: "${noteKeyword}"
 
-Here is the beginning of Item 8 (which usually contains a table of contents for the notes):
+Important: Companies do not always use standard note titles. For example:
+- "Revenue Recognition" may appear within "Segment, Customers, and Geographic Information" or "Revenue from Contracts with Customers"  
+- "Business Combinations" may be called "Acquisitions", "Business Acquisitions and Divestitures", etc.
+- "Share-Based Compensation" may be "Stock-Based Compensation" or "Equity Awards"
+
+Here is the Item 8 text (may be truncated for very long filings):
 ---
-${tocSection}
+${chunk1}
 ---
 
-Your job: identify the EXACT note title or header in this filing that best matches "${noteKeyword}".
+Your task:
+1. Identify which note section best covers "${noteKeyword}" — even if named differently
+2. Extract the COMPLETE text of that note section
 
-Companies use different names for the same disclosure. For example:
-- "Revenue Recognition" might be called "Revenue from Contracts with Customers" or appear within "Segment, Customers, and Geographic Information"
-- "Business Combinations" might be "Acquisitions" or "Business Acquisitions and Divestitures"
-- "Share-Based Compensation" might be "Stock-Based Compensation" or "Equity Awards"
-
-Return ONLY a JSON object, no markdown:
+Return JSON only, no markdown:
 {
   "found": true,
-  "noteTitle": "The exact note title as it appears in this filing",
-  "noteNumber": "e.g. 3 or 15 (if visible)",
-  "confidence": "high or medium or low",
-  "reasoning": "One sentence explaining why this is the right note"
+  "resolvedTitle": "The exact title as it appears in this filing",
+  "noteNumber": "e.g. 3 or 15",
+  "extractedText": "The complete text of the note section, verbatim from the filing",
+  "confidence": "high or medium or low"
 }
 
-If you cannot find a matching note, return:
-{ "found": false, "noteTitle": null, "noteNumber": null, "confidence": "low", "reasoning": "Why not found" }`;
+If you genuinely cannot find a relevant section, return:
+{ "found": false, "resolvedTitle": null, "noteNumber": null, "extractedText": null, "confidence": "low" }`;
 
-    const response = await callClaude(prompt, 400);
+    const response = await callClaude(prompt, 1500);
     try {
-      return extractJSON(response);
+      const parsed = extractJSON(response);
+      if (parsed.found && parsed.extractedText && parsed.extractedText.length > 100) {
+        return parsed;
+      }
+      // If first chunk didn't work, try middle section of the filing
+      if (!parsed.found && item8Text.length > 12000) {
+        const chunk2 = item8Text.slice(8000, 22000);
+        const prompt2 = prompt.replace(chunk1, chunk2);
+        const response2 = await callClaude(prompt2, 1500);
+        const parsed2 = extractJSON(response2);
+        if (parsed2.found && parsed2.extractedText) return parsed2;
+      }
+      return parsed;
     } catch (e) {
-      // Fallback — just use the original keyword
-      return { found: false, noteTitle: null, noteNumber: null, confidence: "low", reasoning: "Could not parse response" };
+      return { found: false, resolvedTitle: null, noteNumber: null, extractedText: null, confidence: "low" };
     }
   }
 
-  // ── Step 2: Extract the note section using the correct title ──────────────
-  function extractNoteByTitle(item8Text, noteTitle, noteNumber) {
-    if (!noteTitle) return { text: null, found: false };
-
-    // Build search patterns using the exact title Claude identified
-    const title = noteTitle.trim();
-    const titleLower = title.toLowerCase();
-
-    const patterns = [];
-
-    // If we have a note number, search for "NOTE X — Title" patterns
-    if (noteNumber) {
-      patterns.push(new RegExp(`note\\s+${noteNumber}[^\\n]{0,80}`, "i"));
-      patterns.push(new RegExp(`${noteNumber}\\.\\s+${titleLower.split(" ").slice(0,3).join("[\\s\\S]{0,10}")}`, "i"));
-    }
-
-    // Exact title match
-    patterns.push(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
-
-    // First 3 significant words of title
-    const words = title.split(/\s+/).filter(w => w.length > 3).slice(0, 3);
-    if (words.length >= 2) {
-      patterns.push(new RegExp(words.join("[\\s\\S]{0,20}"), "i"));
-    }
-
-    // First significant word
-    if (words[0]) {
-      patterns.push(new RegExp(`\\n\\s*${words[0]}[^\\n]{0,60}\\n`, "i"));
-    }
-
-    let startIdx = -1;
-    for (const pat of patterns) {
-      const m = pat.exec(item8Text);
-      if (m) {
-        startIdx = m.index;
-        break;
-      }
-    }
-
-    if (startIdx === -1) {
-      return { text: null, found: false };
-    }
-
-    const fromHere = item8Text.slice(startIdx);
-
-    // Find where next note starts
-    const nextNoteMatch = fromHere.slice(400).search(/\bnote\s+\d+[^a-z]/i);
-    const extracted = nextNoteMatch > 0 && nextNoteMatch < 8000
-      ? fromHere.slice(0, nextNoteMatch + 400)
-      : fromHere.slice(0, 7000);
-
-    return {
-      text: extracted.replace(/\n{3,}/g, "\n\n").trim(),
-      found: true,
-    };
-  }
-
-  // ── Main filing data retrieval ────────────────────────────────────────────
+  // ── Main filing data retrieval ─────────────────────────────────────────────
   async function getFilingData(company, year, noteKeyword) {
-    // 1. Find the filing
     const filing = await findFiling(company, year);
-    if (!filing.url) throw new Error(`No document URL found for ${company} ${year}`);
+    if (!filing.url) throw new Error(`No document URL for ${company} ${year}`);
 
-    // 2. Fetch Item 8 text
     const item8 = await fetchItem8(filing.url);
-
-    // 3. Ask Claude to identify the correct note title
-    const noteInfo = await findNoteTitle(item8, noteKeyword, filing.companyName);
-
-    // 4. Extract using the correct title
-    const searchTitle = noteInfo.found ? noteInfo.noteTitle : noteKeyword;
-    const noteNumber  = noteInfo.noteNumber || null;
-    const section     = extractNoteByTitle(item8, searchTitle, noteNumber);
-
-    // 5. If still not found, try a broader fallback using just the first keyword
-    if (!section.found) {
-      const fallback = extractNoteByTitle(item8, noteKeyword, null);
-      if (fallback.found) {
-        return { ...filing, section: fallback, noteInfo, resolvedTitle: noteKeyword };
-      }
-    }
+    const result = await extractNoteViaClaude(item8, noteKeyword, filing.companyName);
 
     return {
       ...filing,
-      section,
-      noteInfo,
-      resolvedTitle: noteInfo.found ? noteInfo.noteTitle : noteKeyword,
+      section: {
+        found: result.found,
+        text:  result.extractedText,
+      },
+      resolvedTitle: result.resolvedTitle || noteKeyword,
+      noteNumber:    result.noteNumber,
+      confidence:    result.confidence,
     };
   }
+
 
   // ── ACTIONS ───────────────────────────────────────────────────────────────
 
