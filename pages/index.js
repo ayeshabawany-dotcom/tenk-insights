@@ -258,7 +258,7 @@ export default function Home() {
       `}</style>
 
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
-      <header style={{ background:NAVY2, borderBottom:"1px solid #e2e8f0""1px solid #e2e8f0", padding:"0 40px", height:68, display:"flex", alignItems:"center", gap:16, position:"sticky", top:0, zIndex:50 }}>
+      <header style={{ background:NAVY2, borderBottom:"1px solid #e2e8f0", padding:"0 40px", height:68, display:"flex", alignItems:"center", gap:16, position:"sticky", top:0, zIndex:50 }}>
         <div style={{ display:"flex", alignItems:"center", gap:14 }}>
           {/* Wordmark */}
           <div style={{ borderRight:"1px solid #dde1e7", paddingRight:14, marginRight:2 }}>
