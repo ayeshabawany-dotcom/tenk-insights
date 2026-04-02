@@ -1,7 +1,8 @@
 import { useState } from "react";
+import Head from "next/head";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const YEARS = Array.from({ length: 11 }, (_, i) => String(2024 - i)); // 2024 down to 2014
+const YEARS = Array.from({ length: 11 }, (_, i) => String(2024 - i)); // 2024-2014
 
 const NOTE_SECTIONS = [
   "Revenue Recognition",
@@ -35,14 +36,25 @@ function exportCSV(rows, meta) {
   const body = rows.map(r =>
     `"${r.dimension}","${r.a.replace(/"/g, '""')}","${r.b.replace(/"/g, '""')}"`
   ).join("\n");
-  const csv = header + "\n" + body;
-  const blob = new Blob([csv], { type: "text/csv" });
+  const blob = new Blob([header + "\n" + body], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `${meta.companyA}_vs_${meta.companyB}_${meta.note}_${meta.yearA}_${meta.yearB}.csv`.replace(/\s+/g, "_");
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Score Bar Component ───────────────────────────────────────────────────────
+function ScoreBar({ score, color }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+      <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,.08)", borderRadius: 100, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${(score / 10) * 100}%`, background: `linear-gradient(90deg, ${color}80, ${color})`, borderRadius: 100, transition: "width 1s ease" }} />
+      </div>
+      <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 700, color, minWidth: 24 }}>{score}</span>
+    </div>
+  );
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -52,26 +64,21 @@ export default function Home() {
   const [companyB, setCompanyB] = useState("");
   const [yearB, setYearB]       = useState("2023");
   const [note, setNote]         = useState("");
-  const [phase, setPhase]       = useState("idle"); // idle | loading | done | error
+  const [phase, setPhase]       = useState("idle");
   const [errMsg, setErrMsg]     = useState("");
   const [result, setResult]     = useState(null);
-
-  // Sentiment state
-  const [sentPhase, setSentPhase] = useState("idle"); // idle | loading | done
+  const [sentPhase, setSentPhase] = useState("idle");
   const [sentiment, setSentiment] = useState(null);
-
-  // Q&A state
-  const [qaOpen, setQaOpen]   = useState(false);
+  const [qaOpen, setQaOpen]     = useState(false);
   const [question, setQuestion] = useState("");
-  const [qaPhase, setQaPhase] = useState("idle");
-  const [qaHistory, setQaHistory] = useState([]); // [{q, a}]
+  const [qaPhase, setQaPhase]   = useState("idle");
+  const [qaHistory, setQaHistory] = useState([]);
 
   async function compare() {
     if (!companyA.trim() || !companyB.trim() || !note) return;
     setPhase("loading"); setErrMsg(""); setResult(null);
     setSentiment(null); setSentPhase("idle");
     setQaHistory([]); setQaOpen(false);
-
     try {
       const resp = await fetch("/api/analyze", {
         method: "POST",
@@ -80,11 +87,8 @@ export default function Home() {
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Comparison failed");
-      setResult(data);
-      setPhase("done");
-    } catch (e) {
-      setErrMsg(e.message); setPhase("error");
-    }
+      setResult(data); setPhase("done");
+    } catch (e) { setErrMsg(e.message); setPhase("error"); }
   }
 
   async function runSentiment() {
@@ -99,9 +103,7 @@ export default function Home() {
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error);
       setSentiment(data.sentiment); setSentPhase("done");
-    } catch (e) {
-      setSentPhase("error");
-    }
+    } catch (e) { setSentPhase("error"); }
   }
 
   async function askQuestion() {
@@ -119,7 +121,7 @@ export default function Home() {
       setQaHistory(prev => [...prev, { q, a: data.answer }]);
       setQaPhase("idle");
     } catch (e) {
-      setQaHistory(prev => [...prev, { q, a: "Sorry, something went wrong. Try again." }]);
+      setQaHistory(prev => [...prev, { q, a: "Something went wrong. Please try again." }]);
       setQaPhase("idle");
     }
   }
@@ -130,123 +132,376 @@ export default function Home() {
     setNote(ex.note);
   }
 
-  const gold = "#d4af37";
-  const green = "#3cb878";
-
-  const sentColor = (s) => {
-    if (!s) return gold;
-    if (s === "Positive") return "#3cb878";
-    if (s === "Cautious" || s === "Negative") return "#e07070";
-    return gold;
+  const sentimentColor = (s) => {
+    if (s === "Positive") return "#10b981";
+    if (s === "Cautious") return "#f59e0b";
+    if (s === "Negative") return "#fb7185";
+    return "#64748b";
   };
 
-  const inputStyle = {
-    width: "100%", background: "rgba(255,255,255,.06)",
-    border: "1px solid rgba(212,175,55,.25)", borderRadius: 9,
-    padding: "11px 14px", fontSize: 14, fontFamily: "sans-serif",
-    color: "#f5ecd5", outline: "none",
+  // Design tokens
+  const AMBER = "#f59e0b";
+  const COBALT = "#4f8ef7";
+  const EMERALD = "#10b981";
+  const ROSE = "#fb7185";
+
+  const inputBase = {
+    width: "100%",
+    background: "rgba(255,255,255,.05)",
+    border: "1px solid rgba(255,255,255,.1)",
+    borderRadius: 10,
+    padding: "12px 16px",
+    fontSize: 14,
+    fontFamily: "'DM Sans', sans-serif",
+    color: "#e2e8f0",
+    outline: "none",
+    transition: "border-color .2s, box-shadow .2s",
   };
 
-  const labelStyle = {
-    fontFamily: "sans-serif", fontSize: 11, color: "#4a6878",
-    textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 6, display: "block",
+  const labelBase = {
+    display: "block",
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "1px",
+    textTransform: "uppercase",
+    marginBottom: 8,
   };
 
   return (
     <>
+      <Head>
+        <title>10-K Compare — SEC Filing Analysis</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+      </Head>
+
       <style>{`
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #080e1a; color: #ddd5c0; font-family: Georgia, serif; }
-        ::selection { background: rgba(212,175,55,.25); }
-        input::placeholder, textarea::placeholder { color: #2e4455; }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: rgba(212,175,55,.65) !important; box-shadow: 0 0 0 3px rgba(212,175,55,.1) !important; }
-        select option { background: #0d1826; color: #ddd5c0; }
-        .btn { transition: all .15s; cursor: pointer; border: none; font-family: sans-serif; font-weight: 700; }
-        .btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
-        .btn:disabled { opacity: .5; cursor: not-allowed; }
-        .chip { transition: all .15s; cursor: pointer; }
-        .chip:hover { background: rgba(212,175,55,.18) !important; }
-        .trow:hover td { background: rgba(212,175,55,.04) !important; }
-        @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes shimmer { 0%,100%{background-position:0% center} 50%{background-position:100% center} }
+
+        body {
+          background: #030f1c;
+          color: #e2e8f0;
+          font-family: 'DM Sans', sans-serif;
+          min-height: 100vh;
+          overflow-x: hidden;
+        }
+
+        /* Subtle background mesh */
+        body::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          background:
+            radial-gradient(ellipse 80% 50% at 20% 10%, rgba(79,142,247,.07) 0%, transparent 60%),
+            radial-gradient(ellipse 60% 40% at 80% 80%, rgba(245,158,11,.05) 0%, transparent 60%),
+            radial-gradient(ellipse 50% 60% at 50% 50%, rgba(16,185,129,.03) 0%, transparent 70%);
+          pointer-events: none;
+          z-index: 0;
+        }
+
+        /* Fine grid texture */
+        body::after {
+          content: '';
+          position: fixed;
+          inset: 0;
+          background-image: linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,.015) 1px, transparent 1px);
+          background-size: 48px 48px;
+          pointer-events: none;
+          z-index: 0;
+        }
+
+        * { position: relative; z-index: 1; }
+
+        ::selection { background: rgba(79,142,247,.3); }
+
+        input::placeholder, textarea::placeholder { color: #334155; }
+        input:focus, select:focus, textarea:focus {
+          outline: none !important;
+          border-color: rgba(79,142,247,.6) !important;
+          box-shadow: 0 0 0 3px rgba(79,142,247,.12) !important;
+        }
+
+        select option { background: #0d1e33; color: #e2e8f0; }
+
+        .btn { transition: all .18s; cursor: pointer; border: none; font-family: 'DM Sans', sans-serif; font-weight: 600; }
+        .btn:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.1); }
+        .btn:active:not(:disabled) { transform: translateY(0); }
+        .btn:disabled { opacity: .45; cursor: not-allowed; transform: none !important; }
+
+        .glass {
+          background: rgba(255,255,255,.04);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+        }
+
+        .card-amber {
+          border: 1px solid rgba(245,158,11,.2);
+          background: linear-gradient(135deg, rgba(245,158,11,.06) 0%, rgba(245,158,11,.02) 100%);
+        }
+        .card-cobalt {
+          border: 1px solid rgba(79,142,247,.2);
+          background: linear-gradient(135deg, rgba(79,142,247,.06) 0%, rgba(79,142,247,.02) 100%);
+        }
+
+        /* Gradient border top trick */
+        .border-top-amber { border-top: 2px solid ${AMBER}; }
+        .border-top-cobalt { border-top: 2px solid ${COBALT}; }
+
+        .chip:hover { background: rgba(255,255,255,.08) !important; transform: translateY(-1px); }
+        .chip { transition: all .15s; }
+
+        .trow:hover > td { background: rgba(255,255,255,.025) !important; }
+
+        /* Animations */
+        @keyframes fadeUp {
+          from { opacity: 0; transform: translateY(18px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes shimmer {
+          0%   { background-position: 0% center; }
+          50%  { background-position: 100% center; }
+          100% { background-position: 0% center; }
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .fadeup { animation: fadeUp .4s ease forwards; }
-        .d1{animation-delay:.06s}.d2{animation-delay:.12s}.d3{animation-delay:.18s}.d4{animation-delay:.24s}
-        .shimmer-title { background: linear-gradient(90deg,#d4af37,#f5e070,#d4af37,#b8922a,#d4af37); background-size:300% auto; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:shimmer 3s ease infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+        @keyframes slideIn {
+          from { opacity:0; transform: translateX(-8px); }
+          to   { opacity:1; transform: translateX(0); }
+        }
+
+        .fadeup  { animation: fadeUp .5s cubic-bezier(.16,1,.3,1) forwards; opacity: 0; }
+        .fadein  { animation: fadeIn .4s ease forwards; }
+        .d1 { animation-delay: .05s; }
+        .d2 { animation-delay: .12s; }
+        .d3 { animation-delay: .2s;  }
+        .d4 { animation-delay: .28s; }
+        .d5 { animation-delay: .36s; }
+
+        .shimmer-text {
+          background: linear-gradient(90deg, ${AMBER}, #fde68a, ${AMBER}, #d97706, ${AMBER});
+          background-size: 300% auto;
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          animation: shimmer 4s ease infinite;
+        }
+
         .spin { animation: spin 1s linear infinite; display: inline-block; }
-        a { color: #d4af37; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        .pulse-dot { animation: pulse 1.5s ease infinite; }
+
+        /* Scrollbar */
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(212,175,55,.2); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+
+        /* Table */
+        table { border-collapse: collapse; width: 100%; }
+        th, td { vertical-align: top; }
+
+        /* Chat bubbles */
+        .bubble-q {
+          background: rgba(79,142,247,.12);
+          border: 1px solid rgba(79,142,247,.2);
+          border-radius: 14px 14px 4px 14px;
+          padding: 12px 16px;
+          font-size: 14px;
+          color: #bfdbfe;
+          line-height: 1.6;
+          animation: slideIn .3s ease forwards;
+        }
+        .bubble-a {
+          background: rgba(255,255,255,.04);
+          border: 1px solid rgba(255,255,255,.08);
+          border-radius: 4px 14px 14px 14px;
+          padding: 12px 16px;
+          font-size: 14px;
+          color: #94a3b8;
+          line-height: 1.75;
+          animation: slideIn .3s ease .1s forwards;
+          opacity: 0;
+        }
       `}</style>
 
-      {/* Header */}
-      <header style={{ borderBottom: "1px solid rgba(212,175,55,.12)", padding: "16px 28px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 10, background: "rgba(8,14,26,.95)", backdropFilter: "blur(12px)" }}>
-        <div style={{ width: 36, height: 36, background: "linear-gradient(135deg,#d4af37,#f5e070)", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, boxShadow: "0 2px 12px rgba(212,175,55,.3)" }}>📊</div>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#f5ecd5", letterSpacing: "-.3px" }}>10-K Compare</div>
-          <div style={{ fontFamily: "sans-serif", fontSize: 10, color: "#3a5868", letterSpacing: ".8px", textTransform: "uppercase", marginTop: 1 }}>SEC Filing Note Comparison · AI-Powered</div>
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <header style={{
+        borderBottom: "1px solid rgba(255,255,255,.06)",
+        padding: "0 32px",
+        height: 64,
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        position: "sticky",
+        top: 0,
+        zIndex: 50,
+        background: "rgba(3,15,28,.9)",
+        backdropFilter: "blur(20px)",
+      }}>
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 36, height: 36,
+            background: "linear-gradient(135deg, #f59e0b, #fde68a)",
+            borderRadius: 10,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 18,
+            boxShadow: "0 0 20px rgba(245,158,11,.3)",
+          }}>📊</div>
+          <div>
+            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: "#f8fafc", letterSpacing: "-.3px" }}>
+              10-K Compare
+            </div>
+            <div style={{ fontSize: 10, color: "#475569", letterSpacing: "1.2px", textTransform: "uppercase", marginTop: 1 }}>
+              SEC Filing Intelligence
+            </div>
+          </div>
         </div>
-        {phase === "done" && result && (
-          <button className="btn" onClick={() => exportCSV(result.rows, result.meta)}
-            style={{ marginLeft: "auto", background: "rgba(212,175,55,.1)", border: "1px solid rgba(212,175,55,.25)", color: gold, borderRadius: 8, padding: "7px 16px", fontSize: 12 }}>
-            ⬇ Export CSV
-          </button>
-        )}
+
+        {/* Header right */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          {phase === "done" && result && (
+            <>
+              <button className="btn" onClick={runSentiment} disabled={sentPhase === "loading"}
+                style={{ background: "rgba(79,142,247,.12)", border: "1px solid rgba(79,142,247,.25)", color: COBALT, borderRadius: 8, padding: "7px 14px", fontSize: 12 }}>
+                {sentPhase === "loading" ? <><span className="spin">⟳</span> &nbsp;Analyzing…</> : "🎭 Sentiment"}
+              </button>
+              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)}
+                style={{ background: "rgba(16,185,129,.1)", border: "1px solid rgba(16,185,129,.25)", color: EMERALD, borderRadius: 8, padding: "7px 14px", fontSize: 12 }}>
+                ⬇ Export CSV
+              </button>
+            </>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(16,185,129,.08)", border: "1px solid rgba(16,185,129,.18)", borderRadius: 7, padding: "5px 12px" }}>
+            <div className="pulse-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: EMERALD, boxShadow: `0 0 6px ${EMERALD}` }} />
+            <span style={{ fontSize: 11, color: EMERALD, fontWeight: 600 }}>AI Ready</span>
+          </div>
+        </div>
       </header>
 
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "36px 20px 100px" }}>
+      <main style={{ maxWidth: 960, margin: "0 auto", padding: "48px 24px 120px" }}>
 
-        {/* Hero */}
+        {/* ── HERO ─────────────────────────────────────────────────────────── */}
         {phase === "idle" && (
-          <div className="fadeup" style={{ textAlign: "center", marginBottom: 36 }}>
-            <h1 style={{ fontSize: "clamp(26px,5vw,48px)", fontWeight: 700, color: "#f5ecd5", lineHeight: 1.15, marginBottom: 12, letterSpacing: "-1px" }}>
-              Compare any two<br /><span className="shimmer-title">10-K disclosures</span>
+          <div className="fadeup" style={{ textAlign: "center", marginBottom: 48 }}>
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              background: "rgba(245,158,11,.08)",
+              border: "1px solid rgba(245,158,11,.2)",
+              borderRadius: 100, padding: "5px 16px",
+              fontSize: 11, color: "#d97706",
+              fontWeight: 600, letterSpacing: "1px",
+              textTransform: "uppercase", marginBottom: 24,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: AMBER, display: "inline-block" }} />
+              Powered by SEC EDGAR · AI Analysis
+            </div>
+
+            <h1 style={{
+              fontFamily: "'Cormorant Garamond', serif",
+              fontSize: "clamp(36px, 6vw, 68px)",
+              fontWeight: 700,
+              color: "#f8fafc",
+              lineHeight: 1.1,
+              marginBottom: 16,
+              letterSpacing: "-1.5px",
+            }}>
+              Compare any two<br />
+              <span className="shimmer-text">10-K disclosures</span>
             </h1>
-            <p style={{ fontFamily: "sans-serif", fontSize: 15, color: "#4a6878", lineHeight: 1.8, maxWidth: 520, margin: "0 auto 24px" }}>
-              Pick two companies, two years, and a note section. Get a side-by-side breakdown in seconds — then export, analyze sentiment, or ask questions in plain English.
+
+            <p style={{
+              fontSize: 16, color: "#64748b",
+              lineHeight: 1.85, maxWidth: 520, margin: "0 auto 32px",
+              fontWeight: 400,
+            }}>
+              Side-by-side analysis of any note section across companies and years.
+              Export to CSV, run sentiment scoring, or ask questions in plain English.
             </p>
+
+            {/* Example chips */}
             <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              <div style={{ width: "100%", fontSize: 11, color: "#334155", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 4 }}>
+                Try these examples →
+              </div>
               {EXAMPLE_PAIRS.map((ex, i) => (
-                <button key={i} className="chip btn" onClick={() => loadExample(ex)}
-                  style={{ background: "rgba(212,175,55,.07)", border: "1px solid rgba(212,175,55,.18)", color: "#9a8040", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontFamily: "sans-serif", fontWeight: 600 }}>
-                  {ex.a} vs {ex.b} · {ex.note}
+                <button key={i} className="chip btn" onClick={() => loadExample(ex)} style={{
+                  background: "rgba(255,255,255,.04)",
+                  border: "1px solid rgba(255,255,255,.08)",
+                  color: "#94a3b8",
+                  borderRadius: 8, padding: "7px 14px",
+                  fontSize: 12, fontWeight: 500,
+                }}>
+                  <span style={{ color: AMBER, fontWeight: 700 }}>{ex.a}</span>
+                  <span style={{ color: "#334155", margin: "0 4px" }}>vs</span>
+                  <span style={{ color: COBALT, fontWeight: 700 }}>{ex.b}</span>
+                  <span style={{ color: "#475569", margin: "0 4px" }}>·</span>
+                  {ex.note}
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Input Panel */}
-        <div className={phase === "idle" ? "fadeup d2" : ""} style={{ background: "rgba(255,255,255,.03)", border: "1px solid rgba(212,175,55,.2)", borderRadius: 18, padding: 24, marginBottom: 28 }}>
+        {/* ── INPUT PANEL ──────────────────────────────────────────────────── */}
+        <div className={`glass ${phase === "idle" ? "fadeup d2" : ""}`} style={{
+          borderRadius: 20,
+          border: "1px solid rgba(255,255,255,.07)",
+          padding: 28,
+          marginBottom: 28,
+          boxShadow: "0 24px 80px rgba(0,0,0,.4)",
+        }}>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
 
-            {/* Company A */}
-            <div style={{ background: "rgba(212,175,55,.05)", border: "1px solid rgba(212,175,55,.15)", borderRadius: 12, padding: 18 }}>
-              <div style={{ fontFamily: "sans-serif", fontSize: 11, color: gold, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 14, fontWeight: 700 }}>Company A</div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>Company name or ticker</label>
-                <input value={companyA} onChange={e => setCompanyA(e.target.value)} placeholder="e.g. Meta, AAPL, SoundHound AI" style={inputStyle} />
+            {/* Company A Card */}
+            <div className="card-amber border-top-amber" style={{ borderRadius: 14, padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(245,158,11,.2)", border: "1px solid rgba(245,158,11,.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>A</div>
+                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 700, color: AMBER, textTransform: "uppercase", letterSpacing: "1px" }}>Company A</span>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ ...labelBase, color: "#92400e" }}>Company name or ticker</label>
+                <input
+                  value={companyA}
+                  onChange={e => setCompanyA(e.target.value)}
+                  placeholder="e.g. Meta, AAPL, SoundHound AI"
+                  style={{ ...inputBase, borderColor: "rgba(245,158,11,.25)" }}
+                />
               </div>
               <div>
-                <label style={labelStyle}>Fiscal Year</label>
-                <select value={yearA} onChange={e => setYearA(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+                <label style={{ ...labelBase, color: "#92400e" }}>Fiscal Year</label>
+                <select value={yearA} onChange={e => setYearA(e.target.value)}
+                  style={{ ...inputBase, borderColor: "rgba(245,158,11,.25)", cursor: "pointer" }}>
                   {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
             </div>
 
-            {/* Company B */}
-            <div style={{ background: "rgba(100,149,237,.05)", border: "1px solid rgba(100,149,237,.15)", borderRadius: 12, padding: 18 }}>
-              <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#6495ed", textTransform: "uppercase", letterSpacing: "1px", marginBottom: 14, fontWeight: 700 }}>Company B</div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ ...labelStyle, color: "#4a6898" }}>Company name or ticker</label>
-                <input value={companyB} onChange={e => setCompanyB(e.target.value)} placeholder="e.g. Alphabet, MSFT, Visa" style={{ ...inputStyle, border: "1px solid rgba(100,149,237,.25)" }} />
+            {/* Company B Card */}
+            <div className="card-cobalt border-top-cobalt" style={{ borderRadius: 14, padding: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, background: "rgba(79,142,247,.2)", border: "1px solid rgba(79,142,247,.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>B</div>
+                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 700, color: COBALT, textTransform: "uppercase", letterSpacing: "1px" }}>Company B</span>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ ...labelBase, color: "#1e3a5f" }}>Company name or ticker</label>
+                <input
+                  value={companyB}
+                  onChange={e => setCompanyB(e.target.value)}
+                  placeholder="e.g. Alphabet, MSFT, Visa"
+                  style={{ ...inputBase, borderColor: "rgba(79,142,247,.25)" }}
+                />
               </div>
               <div>
-                <label style={{ ...labelStyle, color: "#4a6898" }}>Fiscal Year</label>
-                <select value={yearB} onChange={e => setYearB(e.target.value)} style={{ ...inputStyle, border: "1px solid rgba(100,149,237,.25)", cursor: "pointer" }}>
+                <label style={{ ...labelBase, color: "#1e3a5f" }}>Fiscal Year</label>
+                <select value={yearB} onChange={e => setYearB(e.target.value)}
+                  style={{ ...inputBase, borderColor: "rgba(79,142,247,.25)", cursor: "pointer" }}>
                   {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
@@ -254,141 +509,271 @@ export default function Home() {
           </div>
 
           {/* Note Section */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>10-K Note Section to Compare</label>
-            <select value={note} onChange={e => setNote(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              <option value="">— Select a note section —</option>
+          <div style={{ marginBottom: 22 }}>
+            <label style={{ ...labelBase, color: "#475569" }}>10-K Note Section</label>
+            <select value={note} onChange={e => setNote(e.target.value)}
+              style={{ ...inputBase, cursor: "pointer" }}>
+              <option value="">— Select the note section to compare —</option>
               {NOTE_SECTIONS.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
 
-          <button className="btn" onClick={compare} disabled={phase === "loading" || !companyA.trim() || !companyB.trim() || !note}
-            style={{ width: "100%", background: phase === "loading" ? "rgba(212,175,55,.2)" : "linear-gradient(135deg,#d4af37,#c49a20)", color: phase === "loading" ? "#6a5020" : "#080e1a", borderRadius: 11, padding: "14px 0", fontSize: 16, fontWeight: 800, boxShadow: phase !== "loading" ? "0 4px 20px rgba(212,175,55,.2)" : "none" }}>
-            {phase === "loading" ? <><span className="spin">⟳</span> &nbsp;Analyzing filings…</> : "Compare 10-K Notes →"}
+          {/* Compare Button */}
+          <button className="btn" onClick={compare}
+            disabled={phase === "loading" || !companyA.trim() || !companyB.trim() || !note}
+            style={{
+              width: "100%",
+              background: phase === "loading"
+                ? "rgba(255,255,255,.05)"
+                : "linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)",
+              color: phase === "loading" ? "#475569" : "#030f1c",
+              borderRadius: 12,
+              padding: "15px 0",
+              fontSize: 15,
+              fontWeight: 700,
+              letterSpacing: ".3px",
+              boxShadow: phase !== "loading" ? "0 8px 32px rgba(245,158,11,.25), inset 0 1px 0 rgba(255,255,255,.2)" : "none",
+            }}>
+            {phase === "loading"
+              ? <><span className="spin" style={{ marginRight: 8 }}>⟳</span>Analyzing filings — this takes ~15 seconds…</>
+              : "Compare 10-K Notes →"}
           </button>
         </div>
 
-        {/* Error */}
+        {/* ── ERROR ────────────────────────────────────────────────────────── */}
         {phase === "error" && (
-          <div className="fadeup" style={{ background: "rgba(220,60,60,.07)", border: "1px solid rgba(220,60,60,.25)", borderRadius: 14, padding: "18px 22px", fontFamily: "sans-serif", fontSize: 13, color: "#e08080", marginBottom: 20 }}>
-            ⚠️ {errMsg}
-            <button className="btn" onClick={() => setPhase("idle")} style={{ marginLeft: 16, background: "transparent", border: "1px solid rgba(220,60,60,.3)", color: "#e08080", borderRadius: 6, padding: "4px 12px", fontSize: 12 }}>Try again</button>
+          <div className="fadeup" style={{
+            background: "rgba(251,113,133,.06)",
+            border: "1px solid rgba(251,113,133,.2)",
+            borderLeft: `3px solid ${ROSE}`,
+            borderRadius: 12,
+            padding: "18px 22px",
+            marginBottom: 24,
+            fontSize: 14, color: "#fda4af", lineHeight: 1.6,
+            display: "flex", alignItems: "flex-start", gap: 12,
+          }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Error</div>
+              {errMsg}
+              <button className="btn" onClick={() => setPhase("idle")} style={{
+                display: "block", marginTop: 12, background: "rgba(251,113,133,.15)",
+                border: "1px solid rgba(251,113,133,.3)", color: ROSE,
+                borderRadius: 7, padding: "6px 14px", fontSize: 12,
+              }}>← Try again</button>
+            </div>
           </div>
         )}
 
-        {/* Results */}
+        {/* ── RESULTS ──────────────────────────────────────────────────────── */}
         {phase === "done" && result && (
           <div>
             {/* Result header */}
-            <div className="fadeup" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+            <div className="fadeup" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14, marginBottom: 24 }}>
               <div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#f5ecd5", marginBottom: 4 }}>
-                  {result.meta.companyA} <span style={{ color: "#2e4455" }}>vs</span> {result.meta.companyB}
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, fontWeight: 700, color: "#f8fafc", marginBottom: 8, letterSpacing: "-.5px" }}>
+                  <span style={{ color: AMBER }}>{result.meta.companyA}</span>
+                  <span style={{ color: "#334155", margin: "0 14px", fontSize: 20 }}>versus</span>
+                  <span style={{ color: COBALT }}>{result.meta.companyB}</span>
                 </div>
-                <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#4a6878" }}>
-                  <span style={{ background: "rgba(212,175,55,.15)", color: gold, padding: "2px 8px", borderRadius: 4, fontWeight: 700, marginRight: 8 }}>{result.meta.yearA}</span>
-                  vs
-                  <span style={{ background: "rgba(100,149,237,.15)", color: "#6495ed", padding: "2px 8px", borderRadius: 4, fontWeight: 700, margin: "0 8px" }}>{result.meta.yearB}</span>
-                  · {result.meta.note}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ background: "rgba(245,158,11,.15)", color: AMBER, border: "1px solid rgba(245,158,11,.3)", padding: "3px 10px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>FY {result.meta.yearA}</span>
+                  <span style={{ color: "#334155", fontSize: 12 }}>vs</span>
+                  <span style={{ background: "rgba(79,142,247,.15)", color: COBALT, border: "1px solid rgba(79,142,247,.3)", padding: "3px 10px", borderRadius: 5, fontSize: 12, fontWeight: 700 }}>FY {result.meta.yearB}</span>
+                  <span style={{ color: "#334155" }}>·</span>
+                  <span style={{ color: "#64748b", fontSize: 13 }}>{result.meta.note}</span>
                 </div>
               </div>
               <button className="btn" onClick={() => { setPhase("idle"); setResult(null); setSentiment(null); setQaHistory([]); }}
-                style={{ background: "transparent", border: "1px solid rgba(212,175,55,.2)", color: "#8a7540", borderRadius: 8, padding: "7px 14px", fontSize: 12 }}>
+                style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)", color: "#64748b", borderRadius: 9, padding: "8px 16px", fontSize: 13 }}>
                 ← New comparison
               </button>
             </div>
 
             {/* Key insight */}
             {result.keyInsight && (
-              <div className="fadeup d1" style={{ background: "rgba(212,175,55,.08)", border: "1px solid rgba(212,175,55,.2)", borderRadius: 12, padding: "14px 18px", marginBottom: 20, fontFamily: "sans-serif", fontSize: 14, color: "#c4a030", lineHeight: 1.6 }}>
-                💡 <strong>Key insight:</strong> {result.keyInsight}
+              <div className="fadeup d1" style={{
+                background: "linear-gradient(135deg, rgba(245,158,11,.1), rgba(245,158,11,.04))",
+                border: "1px solid rgba(245,158,11,.2)",
+                borderLeft: `3px solid ${AMBER}`,
+                borderRadius: 12,
+                padding: "16px 20px",
+                marginBottom: 20,
+                display: "flex", gap: 14, alignItems: "flex-start",
+              }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>💡</span>
+                <div>
+                  <div style={{ fontSize: 10, color: "#92400e", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 6 }}>Key Insight</div>
+                  <div style={{ fontSize: 14, color: "#fde68a", lineHeight: 1.7 }}>{result.keyInsight}</div>
+                </div>
               </div>
             )}
 
-            {/* Comparison table */}
-            <div className="fadeup d2" style={{ overflowX: "auto", marginBottom: 20, borderRadius: 14, border: "1px solid rgba(255,255,255,.07)" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ background: "rgba(255,255,255,.04)", padding: "12px 18px", textAlign: "left", fontFamily: "sans-serif", fontSize: 11, color: "#4a6878", textTransform: "uppercase", letterSpacing: ".8px", borderBottom: "1px solid rgba(255,255,255,.07)", width: "28%" }}>
-                      Disclosure / Dimension
-                    </th>
-                    <th style={{ background: "rgba(212,175,55,.07)", padding: "12px 18px", textAlign: "left", fontFamily: "sans-serif", fontSize: 11, color: gold, textTransform: "uppercase", letterSpacing: ".8px", borderBottom: "1px solid rgba(255,255,255,.07)" }}>
-                      {result.meta.companyA} · {result.meta.yearA}
-                    </th>
-                    <th style={{ background: "rgba(100,149,237,.07)", padding: "12px 18px", textAlign: "left", fontFamily: "sans-serif", fontSize: 11, color: "#6495ed", textTransform: "uppercase", letterSpacing: ".8px", borderBottom: "1px solid rgba(255,255,255,.07)" }}>
-                      {result.meta.companyB} · {result.meta.yearB}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.rows.map((row, i) => (
-                    <tr key={i} className="trow">
-                      <td style={{ padding: "13px 18px", fontFamily: "sans-serif", fontSize: 13, fontWeight: 600, color: "#8aacb8", borderBottom: "1px solid rgba(255,255,255,.04)", verticalAlign: "top", background: i % 2 === 0 ? "rgba(255,255,255,.015)" : "transparent" }}>
-                        {row.dimension}
-                      </td>
-                      <td style={{ padding: "13px 18px", fontFamily: "sans-serif", fontSize: 13, color: "#c8d8e0", lineHeight: 1.6, borderBottom: "1px solid rgba(255,255,255,.04)", verticalAlign: "top", background: i % 2 === 0 ? "rgba(212,175,55,.02)" : "transparent" }}>
-                        {row.a}
-                      </td>
-                      <td style={{ padding: "13px 18px", fontFamily: "sans-serif", fontSize: 13, color: "#c8d8e0", lineHeight: 1.6, borderBottom: "1px solid rgba(255,255,255,.04)", verticalAlign: "top", background: i % 2 === 0 ? "rgba(100,149,237,.02)" : "transparent" }}>
-                        {row.b}
-                      </td>
+            {/* Comparison Table */}
+            <div className="fadeup d2" style={{
+              borderRadius: 16,
+              overflow: "hidden",
+              border: "1px solid rgba(255,255,255,.07)",
+              marginBottom: 20,
+              boxShadow: "0 20px 60px rgba(0,0,0,.3)",
+            }}>
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{
+                        background: "rgba(255,255,255,.03)",
+                        padding: "14px 20px",
+                        textAlign: "left",
+                        fontSize: 11, color: "#475569",
+                        fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px",
+                        borderBottom: "1px solid rgba(255,255,255,.07)",
+                        width: "26%",
+                      }}>Disclosure</th>
+                      <th style={{
+                        background: "rgba(245,158,11,.06)",
+                        borderTop: `2px solid ${AMBER}`,
+                        padding: "14px 20px",
+                        textAlign: "left",
+                        fontSize: 11, color: AMBER,
+                        fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px",
+                        borderBottom: "1px solid rgba(255,255,255,.07)",
+                      }}>
+                        {result.meta.companyA} · {result.meta.yearA}
+                      </th>
+                      <th style={{
+                        background: "rgba(79,142,247,.06)",
+                        borderTop: `2px solid ${COBALT}`,
+                        padding: "14px 20px",
+                        textAlign: "left",
+                        fontSize: 11, color: COBALT,
+                        fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px",
+                        borderBottom: "1px solid rgba(255,255,255,.07)",
+                      }}>
+                        {result.meta.companyB} · {result.meta.yearB}
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {result.rows.map((row, i) => (
+                      <tr key={i} className="trow">
+                        <td style={{
+                          padding: "14px 20px",
+                          fontSize: 13, fontWeight: 600, color: "#94a3b8",
+                          fontStyle: "italic",
+                          borderBottom: i < result.rows.length - 1 ? "1px solid rgba(255,255,255,.04)" : "none",
+                          background: "rgba(255,255,255,.01)",
+                        }}>{row.dimension}</td>
+                        <td style={{
+                          padding: "14px 20px",
+                          fontSize: 13, color: "#cbd5e1", lineHeight: 1.7,
+                          borderBottom: i < result.rows.length - 1 ? "1px solid rgba(255,255,255,.04)" : "none",
+                          borderLeft: "1px solid rgba(245,158,11,.08)",
+                          background: i % 2 === 0 ? "rgba(245,158,11,.02)" : "transparent",
+                        }}>{row.a}</td>
+                        <td style={{
+                          padding: "14px 20px",
+                          fontSize: 13, color: "#cbd5e1", lineHeight: 1.7,
+                          borderBottom: i < result.rows.length - 1 ? "1px solid rgba(255,255,255,.04)" : "none",
+                          borderLeft: "1px solid rgba(79,142,247,.08)",
+                          background: i % 2 === 0 ? "rgba(79,142,247,.02)" : "transparent",
+                        }}>{row.b}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             {/* Summary */}
             {result.summary && (
-              <div className="fadeup d3" style={{ background: "rgba(255,255,255,.025)", border: "1px solid rgba(255,255,255,.07)", borderLeft: "3px solid rgba(212,175,55,.4)", borderRadius: 12, padding: "18px 22px", marginBottom: 20, fontFamily: "sans-serif", fontSize: 14, color: "#8aacb8", lineHeight: 1.78 }}>
-                <div style={{ fontSize: 12, color: "#4a6878", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 8 }}>Analyst Summary</div>
-                {result.summary}
+              <div className="fadeup d3" style={{
+                glass: true,
+                background: "rgba(255,255,255,.025)",
+                border: "1px solid rgba(255,255,255,.07)",
+                borderLeft: "3px solid rgba(79,142,247,.4)",
+                borderRadius: 12,
+                padding: "18px 22px",
+                marginBottom: 20,
+              }}>
+                <div style={{ fontSize: 10, color: "#475569", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 10 }}>Analyst Summary</div>
+                <p style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.85 }}>{result.summary}</p>
               </div>
             )}
 
-            {/* Action bar */}
+            {/* Action Bar */}
             <div className="fadeup d4" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
-              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)}
-                style={{ background: "rgba(212,175,55,.1)", border: "1px solid rgba(212,175,55,.25)", color: gold, borderRadius: 9, padding: "10px 18px", fontSize: 13 }}>
-                ⬇ Export to CSV
+              <button className="btn" onClick={() => exportCSV(result.rows, result.meta)} style={{
+                background: "rgba(16,185,129,.1)", border: "1px solid rgba(16,185,129,.25)",
+                color: EMERALD, borderRadius: 10, padding: "11px 20px", fontSize: 13,
+                display: "flex", alignItems: "center", gap: 7,
+              }}>
+                <span>⬇</span> Export to CSV
               </button>
-              <button className="btn" onClick={runSentiment} disabled={sentPhase === "loading"}
-                style={{ background: "rgba(100,149,237,.1)", border: "1px solid rgba(100,149,237,.25)", color: "#6495ed", borderRadius: 9, padding: "10px 18px", fontSize: 13 }}>
-                {sentPhase === "loading" ? <><span className="spin">⟳</span> Analyzing…</> : "🎭 Sentiment Analysis"}
+              <button className="btn" onClick={runSentiment} disabled={sentPhase === "loading"} style={{
+                background: "rgba(79,142,247,.1)", border: "1px solid rgba(79,142,247,.25)",
+                color: COBALT, borderRadius: 10, padding: "11px 20px", fontSize: 13,
+                display: "flex", alignItems: "center", gap: 7,
+              }}>
+                {sentPhase === "loading" ? <><span className="spin">⟳</span> Analyzing tone…</> : <><span>🎭</span> Sentiment Analysis</>}
               </button>
-              <button className="btn" onClick={() => setQaOpen(!qaOpen)}
-                style={{ background: qaOpen ? "rgba(60,184,120,.15)" : "rgba(60,184,120,.08)", border: "1px solid rgba(60,184,120,.25)", color: green, borderRadius: 9, padding: "10px 18px", fontSize: 13 }}>
-                💬 Ask a Question
+              <button className="btn" onClick={() => setQaOpen(!qaOpen)} style={{
+                background: qaOpen ? "rgba(16,185,129,.15)" : "rgba(16,185,129,.08)",
+                border: `1px solid ${qaOpen ? "rgba(16,185,129,.4)" : "rgba(16,185,129,.2)"}`,
+                color: EMERALD, borderRadius: 10, padding: "11px 20px", fontSize: 13,
+                display: "flex", alignItems: "center", gap: 7,
+              }}>
+                <span>💬</span> {qaOpen ? "Hide Q&A" : "Ask a Question"}
               </button>
             </div>
 
-            {/* Sentiment Results */}
+            {/* Sentiment Panel */}
             {sentPhase === "done" && sentiment && (
-              <div className="fadeup" style={{ background: "rgba(255,255,255,.025)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 14, padding: 22, marginBottom: 20 }}>
-                <div style={{ fontFamily: "sans-serif", fontSize: 12, color: "#4a6878", textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 16 }}>Sentiment Analysis</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+              <div className="fadeup" style={{
+                background: "rgba(255,255,255,.02)",
+                border: "1px solid rgba(255,255,255,.07)",
+                borderRadius: 16, padding: 24, marginBottom: 20,
+              }}>
+                <div style={{ fontSize: 10, color: "#475569", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 20 }}>Disclosure Sentiment Analysis</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
                   {[
-                    { company: result.meta.companyA, year: result.meta.yearA, overall: sentiment.overallA, score: sentiment.scoreA, summary: sentiment.summaryA, color: gold },
-                    { company: result.meta.companyB, year: result.meta.yearB, overall: sentiment.overallB, score: sentiment.scoreB, summary: sentiment.summaryB, color: "#6495ed" },
+                    { company: result.meta.companyA, year: result.meta.yearA, overall: sentiment.overallA, score: Number(sentiment.scoreA), summary: sentiment.summaryA, color: AMBER },
+                    { company: result.meta.companyB, year: result.meta.yearB, overall: sentiment.overallB, score: Number(sentiment.scoreB), summary: sentiment.summaryB, color: COBALT },
                   ].map((s, i) => (
-                    <div key={i} style={{ background: "rgba(255,255,255,.03)", borderRadius: 10, padding: 16, border: `1px solid ${s.color}30` }}>
-                      <div style={{ fontFamily: "sans-serif", fontSize: 12, color: s.color, fontWeight: 700, marginBottom: 8 }}>{s.company} · {s.year}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                        <span style={{ background: `${sentColor(s.overall)}20`, color: sentColor(s.overall), border: `1px solid ${sentColor(s.overall)}40`, borderRadius: 6, padding: "3px 10px", fontFamily: "sans-serif", fontSize: 12, fontWeight: 700 }}>{s.overall}</span>
-                        <span style={{ fontFamily: "sans-serif", fontSize: 12, color: "#4a6878" }}>Score: {s.score}/10</span>
+                    <div key={i} style={{
+                      background: `rgba(${i === 0 ? "245,158,11" : "79,142,247"},.04)`,
+                      border: `1px solid rgba(${i === 0 ? "245,158,11" : "79,142,247"},.15)`,
+                      borderRadius: 12, padding: 18,
+                    }}>
+                      <div style={{ fontSize: 12, color: s.color, fontWeight: 700, marginBottom: 12 }}>{s.company} · {s.year}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                        <span style={{
+                          background: `${sentimentColor(s.overall)}20`,
+                          color: sentimentColor(s.overall),
+                          border: `1px solid ${sentimentColor(s.overall)}40`,
+                          borderRadius: 6, padding: "3px 10px",
+                          fontSize: 12, fontWeight: 700,
+                        }}>{s.overall}</span>
                       </div>
-                      <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#8aacb8", lineHeight: 1.6 }}>{s.summary}</div>
+                      <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>Tone score: {s.score}/10</div>
+                      <ScoreBar score={s.score} color={s.color} />
+                      <p style={{ marginTop: 12, fontSize: 13, color: "#64748b", lineHeight: 1.65 }}>{s.summary}</p>
                     </div>
                   ))}
                 </div>
                 {sentiment.comparison && (
-                  <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#8aacb8", lineHeight: 1.7, marginBottom: sentiment.redflags && sentiment.redflags !== "None identified" ? 12 : 0 }}>
-                    <span style={{ color: "#4a6878", fontSize: 11, textTransform: "uppercase", letterSpacing: ".6px" }}>Comparison: </span>{sentiment.comparison}
-                  </div>
+                  <p style={{ fontSize: 13, color: "#64748b", lineHeight: 1.75, marginBottom: sentiment.redflags ? 14 : 0 }}>
+                    <span style={{ color: "#475569", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginRight: 8 }}>Comparison:</span>
+                    {sentiment.comparison}
+                  </p>
                 )}
-                {sentiment.redflags && sentiment.redflags !== "None identified" && (
-                  <div style={{ background: "rgba(220,60,60,.07)", border: "1px solid rgba(220,60,60,.2)", borderRadius: 8, padding: "10px 14px", fontFamily: "sans-serif", fontSize: 13, color: "#e08080", lineHeight: 1.6, marginTop: 10 }}>
+                {sentiment.redflags && sentiment.redflags !== "null" && sentiment.redflags !== "None identified" && (
+                  <div style={{
+                    background: "rgba(251,113,133,.06)", border: "1px solid rgba(251,113,133,.2)",
+                    borderLeft: `3px solid ${ROSE}`, borderRadius: 8,
+                    padding: "12px 16px", marginTop: 14,
+                    fontSize: 13, color: "#fda4af", lineHeight: 1.65,
+                  }}>
                     🚩 <strong>Red flags:</strong> {sentiment.redflags}
                   </div>
                 )}
@@ -397,49 +782,69 @@ export default function Home() {
 
             {/* Q&A Panel */}
             {qaOpen && (
-              <div className="fadeup" style={{ background: "rgba(60,184,120,.04)", border: "1px solid rgba(60,184,120,.2)", borderRadius: 14, padding: 22, marginBottom: 20 }}>
-                <div style={{ fontFamily: "sans-serif", fontSize: 12, color: green, textTransform: "uppercase", letterSpacing: ".8px", marginBottom: 16 }}>Ask anything about this comparison</div>
+              <div className="fadeup" style={{
+                background: "rgba(16,185,129,.03)",
+                border: "1px solid rgba(16,185,129,.15)",
+                borderRadius: 16, padding: 24, marginBottom: 20,
+              }}>
+                <div style={{ fontSize: 10, color: "#065f46", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 16 }}>
+                  Ask anything about this comparison
+                </div>
 
-                {/* Q&A History */}
+                {/* Chat history */}
                 {qaHistory.length > 0 && (
-                  <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
                     {qaHistory.map((item, i) => (
-                      <div key={i}>
-                        <div style={{ fontFamily: "sans-serif", fontSize: 13, color: green, marginBottom: 4 }}>Q: {item.q}</div>
-                        <div style={{ fontFamily: "sans-serif", fontSize: 14, color: "#8aacb8", lineHeight: 1.75, background: "rgba(255,255,255,.025)", borderRadius: 8, padding: "10px 14px" }}>{item.a}</div>
+                      <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <div className="bubble-q" style={{ maxWidth: "80%" }}>{item.q}</div>
+                        </div>
+                        <div className="bubble-a">{item.a}</div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Question input */}
+                {/* Input */}
                 <div style={{ display: "flex", gap: 10 }}>
                   <input
                     value={question}
                     onChange={e => setQuestion(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && qaPhase !== "loading" && askQuestion()}
-                    placeholder="e.g. Which company has more concentrated revenue? What changed between the years?"
+                    placeholder="e.g. Which company has more concentrated revenue? What changed between years?"
                     disabled={qaPhase === "loading"}
-                    style={{ ...inputStyle, border: "1px solid rgba(60,184,120,.25)", flex: 1 }}
+                    style={{ ...inputBase, flex: 1, borderColor: "rgba(16,185,129,.25)" }}
                   />
-                  <button className="btn" onClick={askQuestion} disabled={qaPhase === "loading" || !question.trim()}
-                    style={{ background: qaPhase === "loading" ? "rgba(60,184,120,.15)" : "rgba(60,184,120,.85)", color: qaPhase === "loading" ? green : "#080e1a", borderRadius: 9, padding: "10px 18px", fontSize: 13, whiteSpace: "nowrap" }}>
+                  <button className="btn" onClick={askQuestion}
+                    disabled={qaPhase === "loading" || !question.trim()} style={{
+                      background: qaPhase === "loading" ? "rgba(16,185,129,.15)" : "rgba(16,185,129,.85)",
+                      color: qaPhase === "loading" ? EMERALD : "#030f1c",
+                      borderRadius: 10, padding: "12px 20px", fontSize: 13, flexShrink: 0,
+                    }}>
                     {qaPhase === "loading" ? <span className="spin">⟳</span> : "Ask →"}
                   </button>
                 </div>
-                <div style={{ fontFamily: "sans-serif", fontSize: 11, color: "#2e4455", marginTop: 8 }}>
-                  Tip: Ask about specific line items, year-over-year changes, accounting policy differences, or what the numbers mean for investors.
+                <div style={{ fontSize: 11, color: "#1e3a2f", marginTop: 8 }}>
+                  Press Enter or click Ask. Try: "Which company has more disclosure risk?" or "What's the most notable change?"
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Data disclaimer */}
-        <div style={{ marginTop: 40, padding: "14px 20px", background: "rgba(255,255,255,.015)", borderRadius: 10, fontFamily: "sans-serif", fontSize: 11, color: "#2a3a48", lineHeight: 1.7, textAlign: "center", border: "1px solid rgba(255,255,255,.04)" }}>
-          ℹ️ This tool uses AI (Claude) trained on SEC 10-K filings through early 2025. Data reflects training knowledge, not live SEC EDGAR scraping. Always verify figures at{" "}
-          <a href="https://efts.sec.gov/LATEST/search-index?forms=10-K" target="_blank" rel="noopener noreferrer" style={{ color: "#3a5a68" }}>SEC EDGAR</a>{" "}
-          before making any investment or business decisions. Not financial advice.
+        {/* ── DISCLAIMER ───────────────────────────────────────────────────── */}
+        <div style={{
+          marginTop: 48,
+          padding: "16px 22px",
+          background: "rgba(255,255,255,.02)",
+          border: "1px solid rgba(255,255,255,.05)",
+          borderRadius: 12,
+          fontSize: 11, color: "#334155", lineHeight: 1.8, textAlign: "center",
+        }}>
+          <span style={{ color: "#475569" }}>ℹ️ </span>
+          This tool uses AI trained on SEC 10-K filings through <strong style={{ color: "#475569" }}>early 2025</strong>. Analysis reflects AI training knowledge — not live SEC EDGAR data scraping. Always verify figures directly at{" "}
+          <a href="https://efts.sec.gov/LATEST/search-index?forms=10-K" target="_blank" rel="noopener noreferrer" style={{ color: "#475569", textDecoration: "underline" }}>SEC EDGAR</a>
+          {" "}before any investment or business decisions. Not financial advice.
         </div>
       </main>
     </>
