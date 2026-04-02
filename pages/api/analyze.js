@@ -113,31 +113,60 @@ export default async function handler(req, res) {
   }
 
   // ── Fetch Item 8 text via sec-api.io extractor ────────────────────────────
-  async function fetchItem8(filingUrl) {
-    // First try the sec-api.io extractor for Item 8
-    const extractUrl = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=text&token=${secApiKey}`;
-    const resp = await fetch(extractUrl);
-    if (resp.ok) {
-      const text = await resp.text();
-      // If Item 8 is substantial, use it
-      if (text && text.trim().length > 5000) return text;
-      console.log(`[DEBUG] Item 8 too short (${text.length} chars), falling back to full filing`);
+  // Convert HTML table to readable markdown-style text
+  // Preserves all numbers and labels that would be lost in plain text extraction
+  function htmlTableToText(html) {
+    let result = "";
+    // Find all tables
+    const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+    let tMatch;
+    while ((tMatch = tableRe.exec(html)) !== null) {
+      const tableHtml = tMatch[1];
+      const rows = [];
+      // Find all rows
+      const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let rMatch;
+      while ((rMatch = rowRe.exec(tableHtml)) !== null) {
+        const cells = [];
+        // Find all cells (th or td)
+        const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+        let cMatch;
+        while ((cMatch = cellRe.exec(rMatch[1])) !== null) {
+          // Strip HTML from cell content, decode entities, trim
+          const cellText = cMatch[1]
+            .replace(/<[^>]+>/g, " ")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&#\d+;/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (cellText) cells.push(cellText);
+        }
+        if (cells.length > 0) rows.push(cells.join(" | "));
+      }
+      if (rows.length > 0) result += rows.join("
+") + "
+
+";
     }
+    return result;
+  }
 
-    // Fallback: fetch the full filing HTML and strip to text
-    // Some companies file financials as separate exhibits — Item 8 just says "see page F-X"
-    console.log(`[DEBUG] Fetching full filing from: ${filingUrl}`);
-    const fullResp = await fetch(filingUrl, {
-      headers: { "User-Agent": "10KCompare research@10kcompare.app" },
-    });
-    if (!fullResp.ok) throw new Error(`Could not fetch filing document (HTTP ${fullResp.status})`);
-
-    // Read up to 15MB
-    const buffer = await fullResp.arrayBuffer();
-    const raw = new TextDecoder().decode(buffer.slice(0, 15_000_000));
-
-    // Strip HTML tags to get plain text
-    const plainText = raw
+  // Convert full HTML to mixed text — preserves table data as structured rows
+  // while keeping surrounding prose intact
+  function htmlToMixedText(html) {
+    // Step 1: Replace tables with structured text representation
+    const withTables = html.replace(
+      /<table[^>]*>[\s\S]*?<\/table>/gi,
+      (tableHtml) => "
+[TABLE]
+" + htmlTableToText(tableHtml) + "[/TABLE]
+"
+    );
+    // Step 2: Strip remaining HTML tags
+    return withTables
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
       .replace(/<[^>]+>/g, " ")
@@ -146,15 +175,46 @@ export default async function handler(req, res) {
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
       .replace(/&#\d+;/g, " ")
-      .replace(/[ \t]{3,}/g, " ").replace(/\n{3,}/g, "\n\n")
-      .trim();
+      .replace(/[ 	]{3,}/g, " ")
+      .replace(/
+{3,}/g, "
 
-    if (!plainText || plainText.length < 1000) {
+")
+      .trim();
+  }
+
+  async function fetchItem8(filingUrl) {
+    // Request HTML (not text) so we preserve table structure
+    const extractUrl = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=html&token=${secApiKey}`;
+    const resp = await fetch(extractUrl);
+    if (resp.ok) {
+      const html = await resp.text();
+      if (html && html.trim().length > 5000) {
+        const mixed = htmlToMixedText(html);
+        console.log(`[DEBUG] Item 8 HTML converted, length: ${mixed.length}`);
+        return mixed;
+      }
+      console.log(`[DEBUG] Item 8 HTML too short (${html.length} chars), falling back to full filing`);
+    }
+
+    // Fallback: fetch the full filing HTML directly
+    // Used when Item 8 is a stub pointing to separate exhibit (e.g. Synaptics)
+    console.log(`[DEBUG] Fetching full filing HTML from: ${filingUrl}`);
+    const fullResp = await fetch(filingUrl, {
+      headers: { "User-Agent": "10KCompare research@10kcompare.app" },
+    });
+    if (!fullResp.ok) throw new Error(`Could not fetch filing document (HTTP ${fullResp.status})`);
+
+    const buffer = await fullResp.arrayBuffer();
+    const rawHtml = new TextDecoder().decode(buffer.slice(0, 15_000_000));
+    const mixed = htmlToMixedText(rawHtml);
+
+    if (!mixed || mixed.length < 1000) {
       throw new Error("Could not extract filing text. The document may be in an unsupported format.");
     }
 
-    console.log(`[DEBUG] Full filing text length: ${plainText.length}`);
-    return plainText;
+    console.log(`[DEBUG] Full filing HTML converted, length: ${mixed.length}`);
+    return mixed;
   }
 
   // ── ACTIONS ───────────────────────────────────────────────────────────────
@@ -320,10 +380,12 @@ ${trimA}
 ${trimB}
 
 Instructions:
-- Find the relevant note section in each filing
+- Find the relevant note section in each filing (note titles may differ between companies)
 - Compare them on 6-8 specific dimensions
-- Use ONLY information present in the text above
-- Reference actual numbers and specific language from the filings
+- Use ONLY information present in the text above — do not invent anything
+- Tables appear between [TABLE] and [/TABLE] markers with columns separated by " | " — READ THESE for actual numbers
+- For revenue notes: extract the actual breakdown figures by product, segment, or geography from tables
+- Reference specific dollar amounts, percentages, and policy language from the actual filing text
 
 Respond with ONLY this JSON structure (no markdown, no text before or after):
 {
