@@ -343,7 +343,7 @@ for (const re of [re1, re2, re4]) {
   // ── ACTIONS ──────────────────────────────────────────────────────────────────
 
   if (action === "compare") {
-    const { companyA, yearA, companyB, yearB, noteSection } = body;
+    // companyA, yearA, companyB, yearB, noteSection already destructured from req.body above
     if (!companyA || !companyB || !noteSection)
       return res.status(400).json({ error: "Missing required fields." });
 
@@ -406,7 +406,7 @@ Respond with ONLY valid JSON:
   }
 
   if (action === "sentiment") {
-    const { noteSection, tableData } = body;
+    // noteSection and tableData already destructured from req.body above
     if (!tableData) return res.status(400).json({ error: "Missing data." });
     const tableText = tableData.rows.map(r =>
       `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
