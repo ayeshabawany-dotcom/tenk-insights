@@ -246,7 +246,7 @@ export default async function handler(req, res) {
       .replace(/{year}/g, year || "")
       .replace(/{note}/g, targetNote);
 
-    const textToSend = item8Text.slice(0, 100000);
+    const textToSend = item8Text.slice(notesStartIdx, notesStartIdx + 100000);
 
     console.log("[DEBUG] " + companyName + " sending " + textToSend.length +
       " chars (~" + Math.round(textToSend.length / 4) + " tokens) for: " + targetNote);
