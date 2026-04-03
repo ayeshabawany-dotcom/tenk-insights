@@ -89,87 +89,74 @@ export default async function handler(req, res) {
   }
 
   // ── HTML → structured text (preserves tables) ──────────────────────────────
-  function htmlTableToText(html) {
-    let result = "";
-    const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
-    let tMatch;
-    while ((tMatch = tableRe.exec(html)) !== null) {
-      const rows = [];
-      const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let rMatch;
-      while ((rMatch = rowRe.exec(tMatch[1])) !== null) {
-        const cells = [];
-        const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-        let cMatch;
-        while ((cMatch = cellRe.exec(rMatch[1])) !== null) {
-          const cellText = cMatch[1]
-            .replace(/<[^>]+>/g, " ")
-            .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-            .replace(/&#\d+;/g, " ").replace(/\s+/g, " ").trim();
-          if (cellText) cells.push(cellText);
-        }
-        if (cells.length > 0) rows.push(cells.join(" | "));
+  async function fetchItem8(filingUrl) {
+    // Use type=text — clean, reliable, no HTML parsing fragility
+    const extractUrl = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=text&token=${secApiKey}`;
+    const resp = await fetch(extractUrl);
+    if (resp.ok) {
+      const text = await resp.text();
+      if (text && text.trim().length > 5000) {
+        console.log(`[DEBUG] Item 8 text length: ${text.length}`);
+        return text;
       }
-      if (rows.length > 0) result += rows.join("\n") + "\n\n";
+      console.log(`[DEBUG] Item 8 too short (${text.length} chars), fetching full filing`);
     }
-    return result;
-  }
 
-  function htmlToMixedText(html) {
-    const withTables = html.replace(/<table[^>]*>[\s\S]*?<\/table>/gi, (tableHtml) => {
-      return "\n[TABLE]\n" + htmlTableToText(tableHtml) + "[/TABLE]\n";
+    // Fallback: full filing HTML → strip to plain text
+    // Used when Item 8 is a stub (e.g. financials filed as separate exhibit)
+    console.log(`[DEBUG] Fetching full filing from: ${filingUrl}`);
+    const fullResp = await fetch(filingUrl, {
+      headers: { "User-Agent": "10KCompare research@10kcompare.app" },
     });
-    return withTables
+    if (!fullResp.ok) throw new Error(`Could not fetch filing (HTTP ${fullResp.status})`);
+    const buffer = await fullResp.arrayBuffer();
+    const rawHtml = new TextDecoder().decode(buffer.slice(0, 15000000));
+    const plain = rawHtml
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
       .replace(/<[^>]+>/g, " ")
       .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
       .replace(/&#\d+;/g, " ")
-      .replace(/[ \t]{3,}/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
+      .replace(/[ 	]{3,}/g, " ")
+      .replace(/
+{3,}/g, "
 
-  // ── Fetch Item 8 (HTML mode to preserve tables, fallback to full filing) ───
-  async function fetchItem8(filingUrl) {
-    const extractUrl = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=html&token=${secApiKey}`;
-    const resp = await fetch(extractUrl);
-    if (resp.ok) {
-      const html = await resp.text();
-      if (html && html.trim().length > 5000) {
-        const mixed = htmlToMixedText(html);
-        console.log(`[DEBUG] Item 8 HTML converted, length: ${mixed.length}`);
-        return mixed;
-      }
-      console.log(`[DEBUG] Item 8 too short (${html.length} chars), fetching full filing`);
-    }
-    // Fallback: full filing HTML (for companies that file financials as separate exhibit)
-    const fullResp = await fetch(filingUrl, { headers: { "User-Agent": "10KCompare research@10kcompare.app" } });
-    if (!fullResp.ok) throw new Error(`Could not fetch filing (HTTP ${fullResp.status})`);
-    const buffer = await fullResp.arrayBuffer();
-    const rawHtml = new TextDecoder().decode(buffer.slice(0, 15000000));
-    const mixed = htmlToMixedText(rawHtml);
-    if (!mixed || mixed.length < 1000) throw new Error("Could not extract filing text.");
-    console.log(`[DEBUG] Full filing HTML converted, length: ${mixed.length}`);
-    return mixed;
+")
+      .trim();
+    if (!plain || plain.length < 1000) throw new Error("Could not extract filing text.");
+    console.log(`[DEBUG] Full filing text length: ${plain.length}`);
+    return plain;
   }
 
   // ── Find where notes start in Item 8 (skip auditor report) ────────────────
   function findNotesStart(text) {
+    // Use the LAST occurrence of notes header markers — not the first.
+    // The first occurrence is almost always in the table of contents
+    // (e.g. "NOTES TO CONSOLIDATED FINANCIAL STATEMENTS .... F-15")
+    // The last occurrence is where the actual notes begin.
     const markers = [
-      /NOTES TO CONSOLIDATED FINANCIAL STATEMENTS/i,
-      /NOTES TO FINANCIAL STATEMENTS/i,
-      /NOTE 1[\s\W]/i,
-      /Note 1[\s\W]/i,
-      /Notes to the Consolidated/i,
+      /NOTES TO CONSOLIDATED FINANCIAL STATEMENTS/gi,
+      /NOTES TO FINANCIAL STATEMENTS/gi,
+      /Notes to the Consolidated Financial/gi,
     ];
-    for (const m of markers) {
-      const idx = text.search(m);
-      if (idx !== -1) return idx;
+
+    for (const re of markers) {
+      let lastIdx = -1;
+      let m;
+      while ((m = re.exec(text)) !== null) lastIdx = m.index;
+      if (lastIdx !== -1) return lastIdx;
     }
-    return Math.min(3000, Math.floor(text.length * 0.2));
+
+    // Fallback: find NOTE 1 followed by content (not a page number)
+    const note1Re = /NOTE\s+1[\s\.\-—]+[A-Z]/gi;
+    let lastNote1 = -1;
+    let m2;
+    while ((m2 = note1Re.exec(text)) !== null) lastNote1 = m2.index;
+    if (lastNote1 !== -1) return lastNote1;
+
+    // Last resort: skip first 20% of Item 8 (audit report area)
+    return Math.floor(text.length * 0.2);
   }
 
   // ── Build note index from full notes text ──────────────────────────────────
@@ -410,10 +397,8 @@ Instructions:
 - Compare these two disclosures on 8-10 specific dimensions
 - IMPORTANT: Stay strictly focused on "${noteSection}" — do NOT include dimensions about income taxes, leases, asset useful lives, or other topics unless they are directly part of this note
 - Use ONLY information present in the filing text above
-- Tables appear between [TABLE] and [/TABLE] markers with columns separated by " | " — READ THESE for actual numbers
-- REQUIRED: If revenue breakdown tables exist (by product, segment, geography, customer), extract ALL figures as dedicated rows
-- REQUIRED: Show actual dollar amounts and percentages from tables, not just policy language
-- Reference specific numbers and policy language from the actual filing text
+- Extract specific dollar amounts, percentages, and figures wherever they appear in the text
+- Reference concrete numbers and policy language from the actual filing text
 
 Respond with ONLY valid JSON, no markdown:
 {
@@ -521,7 +506,7 @@ Return ONLY valid JSON:
             const found = fullText.toLowerCase().indexOf(kw, pos);
             if (found === -1) break;
             const nearby = fullText.slice(Math.max(0, found - 300), found + 300);
-            const isNearData = nearby.includes("[TABLE]") || nearby.includes(" | ") ||
+            const isNearData = nearby.includes(" | ") ||
               /\$[\d,]+/.test(nearby) || /\d+,\d{3}/.test(nearby);
             if (isNearData && (bestIdx === -1 || found < bestIdx)) {
               bestIdx = found;
