@@ -269,13 +269,11 @@ for (const re of [re1, re2, re4]) {
       .replace(/{year}/g, year || "")
       .replace(/{note}/g, targetNote);
 
-    // Search the FULL Item 8 text for the note header keywords
-    // This bypasses notesStartIdx which can land in the wrong place
     const keywords = NOTE_KEYWORDS[targetNote] || [targetNote.toUpperCase().split(" ")[0]];
 
+    // Find the note header in the full Item 8 text
     let foundAt = -1;
     for (const kw of keywords) {
-      // Look for keyword appearing as a note header (preceded by NOTE X. or on its own line)
       const patterns = [
         new RegExp("NOTE\s+\d+[.\s]+" + kw, "i"),
         new RegExp("\n\s*\d+[.]\s+" + kw, "i"),
@@ -283,261 +281,30 @@ for (const re of [re1, re2, re4]) {
       ];
       for (const pat of patterns) {
         const m = pat.exec(item8Text);
-        if (m && m.index > 1000) { // skip first 1000 chars (cover page area)
+        if (m && m.index > 1000) {
           foundAt = m.index;
-          console.log("[DEBUG] " + companyName + " found keyword '" + kw + "' at char " + foundAt);
+          console.log("[DEBUG] " + companyName + " found '" + kw + "' at char " + foundAt);
           break;
         }
       }
       if (foundAt > -1) break;
     }
 
-    // If keyword search failed, fall back to notesStartIdx
     const chunkStart = foundAt > -1 ? foundAt : notesStartIdx;
-    const textChunk  = item8Text.slice(chunkStart, chunkStart + 14000);
 
-    console.log("[DEBUG] " + companyName + " extracting from char " + chunkStart + ", chunk length: " + textChunk.length);
+    // Send everything from the note header to the end of Item 8
+    // Let Claude read the full content — no artificial size limit
+    const fullChunk = item8Text.slice(chunkStart);
+    console.log("[DEBUG] " + companyName + " sending " + fullChunk.length + " chars from char " + chunkStart);
 
-    const prompt = "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K.\n\nAnswer this question from the filing text below:\n" + question + "\n\nFiling text:\n" + textChunk + "\n\nInstructions:\n- Answer ONLY from the text above\n- Include ALL specific dollar amounts, dates, company names, and terms\n- Do not say 'see Note X' — extract the actual information\n- If this section genuinely does not contain the answer, say: NOT IN THIS SECTION\n\nProvide a detailed answer with all key facts.";
+    const prompt = "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K.\n\nAnswer this question from the filing text below:\n" + question + "\n\nFiling text:\n" + fullChunk + "\n\nInstructions:\n- Answer ONLY from the text above\n- Include ALL specific dollar amounts, dates, company names, and terms\n- Do not say 'see Note X' — extract the actual information from the text provided\n- Provide a complete, detailed answer with all key facts and figures.";
 
     try {
-      const result = await callClaude(prompt, 1500);
-      if (!result.trim().startsWith("NOT IN THIS SECTION")) {
-        console.log("[DEBUG] " + companyName + " extraction succeeded");
-        return { text: result.trim(), resolvedTitle: targetNote };
-      }
-      // If not found and we used keyword position, try notesStartIdx as backup
-      if (foundAt > -1 && notesStartIdx !== foundAt) {
-        const backup = item8Text.slice(notesStartIdx, notesStartIdx + 14000);
-        const prompt2 = prompt.replace(textChunk, backup);
-        const result2 = await callClaude(prompt2, 1500);
-        if (!result2.trim().startsWith("NOT IN THIS SECTION")) {
-          return { text: result2.trim(), resolvedTitle: targetNote };
-        }
-      }
+      const result = await callClaude(prompt, 3000);
+      console.log("[DEBUG] " + companyName + " extraction complete, response length: " + result.length);
+      return { text: result.trim(), resolvedTitle: targetNote };
     } catch(e) {
       console.log("[DEBUG] " + companyName + " error: " + e.message);
+      return { text: null, resolvedTitle: targetNote };
     }
-
-    return { text: null, resolvedTitle: targetNote };
   }
-
-  // ── ACTIONS ────────────────────────────────────────────────────────────────
-  try {
-
-    // ── COMPARE ───────────────────────────────────────────────────────────────
-    if (action === "compare") {
-      if (!companyA || !yearA || !companyB || !yearB || !noteSection) {
-        return res.status(400).json({ error: "All fields are required." });
-      }
-
-      let filingA, filingB, item8A, item8B;
-      try {
-        [filingA, filingB] = await Promise.all([findFiling(companyA, yearA), findFiling(companyB, yearB)]);
-        [item8A,  item8B]  = await Promise.all([fetchItem8(filingA.url),    fetchItem8(filingB.url)]);
-      } catch (e) {
-        return res.status(502).json({ error: `Filing retrieval failed: ${e.message}` });
-      }
-
-      const startA = findNotesStart(item8A);
-      const startB = findNotesStart(item8B);
-
-      const [extractedA, extractedB] = await Promise.all([
-        findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA),
-        findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB),
-      ]);
-
-      const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
-      const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
-      const resolvedTitleA = extractedA.resolvedTitle;
-      const resolvedTitleB = extractedB.resolvedTitle;
-
-      const combinedPrompt = `You are a senior technical accountant comparing actual SEC 10-K filing disclosures.
-
-DO NOT invent or add anything not present in the filing text below.
-
-=== FILING A: ${filingA.companyName} FY${yearA} ===
-Filed: ${filingA.filedAt?.slice(0, 10)} | Period: ${filingA.period}
-Note as filed: "${resolvedTitleA}"
-${trimA.slice(0, 5000)}
-
-=== FILING B: ${filingB.companyName} FY${yearB} ===
-Filed: ${filingB.filedAt?.slice(0, 10)} | Period: ${filingB.period}
-Note as filed: "${resolvedTitleB}"
-${trimB.slice(0, 5000)}
-
-Instructions:
-- Compare these two filings on 8-10 specific dimensions relevant to "${noteSection}"
-- Use ONLY information present in the filing answers above — do not invent anything
-- Reference specific dollar amounts, dates, company names, and terms from the actual filing text
-- If one filing has information the other lacks, note that asymmetry explicitly
-
-Respond with ONLY valid JSON, no markdown:
-{
-  "meta": {
-    "companyA": "${filingA.companyName}",
-    "yearA": "${yearA}",
-    "companyB": "${filingB.companyName}",
-    "yearB": "${yearB}",
-    "note": "${noteSection}"
-  },
-  "resolvedTitleA": "${resolvedTitleA}",
-  "resolvedTitleB": "${resolvedTitleB}",
-  "rows": [
-    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
-    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
-    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
-    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
-    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" },
-    { "dimension": "dimension name", "a": "Filing A disclosure", "b": "Filing B disclosure" }
-  ],
-  "summary": "2-3 sentences on key differences with specific numbers.",
-  "keyInsight": "Single most important finding."
-}`;
-
-      const claudeText = await callClaude(combinedPrompt, 3000);
-      let parsed;
-      try {
-        parsed = extractJSON(claudeText);
-      } catch (e) {
-        const preview = claudeText.slice(0, 300).replace(/\n/g, " ");
-        return res.status(500).json({ error: `JSON parse failed. Claude returned: ${preview}` });
-      }
-
-      if (!parsed.rows || parsed.rows.length === 0) {
-        const preview = JSON.stringify(parsed).slice(0, 300);
-        return res.status(500).json({ error: `Rows were empty. Parsed: ${preview}` });
-      }
-
-      const sourceNote = (resolvedTitleA !== noteSection || resolvedTitleB !== noteSection)
-        ? `Section names auto-resolved — ${filingA.companyName}: "${resolvedTitleA}" · ${filingB.companyName}: "${resolvedTitleB}"`
-        : null;
-
-      parsed.sourceA    = filingA.url;
-      parsed.sourceB    = filingB.url;
-      parsed.sourceNote = sourceNote;
-      parsed.dataSource = "SEC EDGAR via sec-api.io — actual 10-K filing text";
-      // Store raw extracted text for Q&A (truncated to keep response size reasonable)
-      // Store extracted note text for Q&A (20k chars of the specific note)
-      parsed.rawTextA   = trimA.slice(0, 20000);
-      parsed.rawTextB   = trimB.slice(0, 20000);
-      // Store the FULL notes section for Q&A — no cap
-      // Microsoft's Note 19 can be at character 80,000+ so we need everything
-      parsed.notesContextA = item8A.slice(startA);
-      parsed.notesContextB = item8B.slice(startB);
-      return res.status(200).json(parsed);
-    }
-
-    // ── SENTIMENT ─────────────────────────────────────────────────────────────
-    if (action === "sentiment") {
-      if (!tableData || !noteSection) return res.status(400).json({ error: "Missing data." });
-      const tableText = tableData.rows.map(r => `${r.dimension}: ${tableData.meta.companyA}="${r.a}" vs ${tableData.meta.companyB}="${r.b}"`).join("\n");
-      const prompt = `Analyze disclosure tone from actual 10-K filing data.
-${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${noteSection}
-${tableText}
-Return ONLY valid JSON:
-{
-  "overallA": "Positive or Neutral or Cautious or Negative", "scoreA": 7,
-  "summaryA": "2 sentences on Company A tone",
-  "overallB": "Positive or Neutral or Cautious or Negative", "scoreB": 6,
-  "summaryB": "2 sentences on Company B tone",
-  "comparison": "2 sentences comparing both",
-  "redflags": "Any red flags, or null"
-}`;
-      const text = await callClaude(prompt, 800);
-      let sentiment;
-      try { sentiment = extractJSON(text); }
-      catch (e) { return res.status(500).json({ error: "Could not parse sentiment." }); }
-      return res.status(200).json({ sentiment });
-    }
-
-    // ── ASK ────────────────────────────────────────────────────────────────────
-    if (action === "ask") {
-      if (!question || !tableData) return res.status(400).json({ error: "Missing question or data." });
-      const tableText = tableData.rows.map(r => `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`).join("\n");
-
-      // Use raw extracted filing text if available (much richer than summary table)
-      // Use full notes context if available (broader search), fallback to extracted note
-      const rawA = tableData.notesContextA || tableData.rawTextA || "";
-      const rawB = tableData.notesContextB || tableData.rawTextB || "";
-
-      // Smart context extraction: search for question keywords in the full notes text
-      // instead of always taking the first 6000 chars (which misses late notes)
-      function extractRelevantContext(fullText, q) {
-        if (!fullText || fullText.length < 100) return "";
-        const keywords = q.toLowerCase()
-          .replace(/[^a-z\s]/g, "").split(/\s+/)
-          .filter(w => w.length > 4 && !["give","what","show","tell","much","many","does","have","from","this","that","which","their","about"].includes(w));
-
-        let bestIdx = -1;
-
-        // First pass: look for keyword hits near tables or dollar amounts
-        for (const kw of keywords) {
-          let pos = 0;
-          while (pos < fullText.length) {
-            const found = fullText.toLowerCase().indexOf(kw, pos);
-            if (found === -1) break;
-            const nearby = fullText.slice(Math.max(0, found - 300), found + 300);
-            const isNearData = nearby.includes(" | ") ||
-              /\$[\d,]+/.test(nearby) || /\d+,\d{3}/.test(nearby);
-            if (isNearData && (bestIdx === -1 || found < bestIdx)) {
-              bestIdx = found;
-              break;
-            }
-            pos = found + 1;
-          }
-        }
-
-        // Second pass: look for any hit if no data-adjacent hit found
-        if (bestIdx === -1) {
-          for (const kw of keywords) {
-            const found = fullText.toLowerCase().indexOf(kw, 500);
-            if (found > 0 && (bestIdx === -1 || found < bestIdx)) bestIdx = found;
-          }
-        }
-
-        if (bestIdx > 200) {
-          const start = Math.max(0, bestIdx - 500);
-          return fullText.slice(start, start + 8000);
-        }
-        return fullText.slice(0, 8000);
-      }
-
-      const contextA = extractRelevantContext(rawA, question);
-      const contextB = extractRelevantContext(rawB, question);
-      const hasContext = contextA.length > 100 || contextB.length > 100;
-
-      const prompt = `You are a senior financial analyst answering a question about actual SEC 10-K filings.
-
-${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${tableData.meta.note}
-
-${hasContext ? `=== FILING TEXT ===
-
-${tableData.meta.companyA}:
-${contextA}
-
-${tableData.meta.companyB}:
-${contextB}
-
-=== COMPARISON SUMMARY ===` : "=== COMPARISON DATA ==="}
-${tableText}
-
-Question: ${question}
-
-Formatting instructions:
-- Use a markdown table (| Col | Col | headers |) when the answer has multiple transactions, companies, or structured line items — this makes the answer much easier to read
-- Use bullet points (-) for lists of facts
-- Use **bold** for key figures, company names, and dates
-- Write in plain English — no filler phrases
-- Include specific dollar amounts, dates, and terms directly from the filing
-- If the data does not contain enough to answer, say so directly`
-      const answer = await callClaude(prompt, 1500);
-      return res.status(200).json({ answer: answer.trim() });
-    }
-
-    return res.status(400).json({ error: "Unknown action." });
-
-  } catch (err) {
-    return res.status(500).json({ error: err.message || "Server error. Please try again." });
-  }
-}
