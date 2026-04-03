@@ -491,7 +491,7 @@ Return ONLY valid JSON:
 
 ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${tableData.meta.note}
 
-${hasContext ? `=== FILING TEXT (most relevant section for your question) ===
+${hasContext ? `=== FILING TEXT ===
 
 ${tableData.meta.companyA}:
 ${contextA}
@@ -504,12 +504,13 @@ ${tableText}
 
 Question: ${question}
 
-Instructions:
-- Look in the filing text sections above for specific numbers and tables
-- Tables use " | " as column separators between values
-- For revenue by type/product/geography/segment: look for disaggregation tables in the filing text
-- Give a direct answer with actual dollar amounts and figures where available
-- If the data is genuinely not in the provided text, say so clearly`;
+Formatting instructions:
+- Use a markdown table (| Col | Col | headers |) when the answer has multiple transactions, companies, or structured line items — this makes the answer much easier to read
+- Use bullet points (-) for lists of facts
+- Use **bold** for key figures, company names, and dates
+- Write in plain English — no filler phrases
+- Include specific dollar amounts, dates, and terms directly from the filing
+- If the data does not contain enough to answer, say so directly`
       const answer = await callClaude(prompt, 1500);
       return res.status(200).json({ answer: answer.trim() });
     }
