@@ -248,59 +248,96 @@ for (const re of [re1, re2, re4]) {
       "What are {company}'s most important accounting policies as of FY{year}? Focus on revenue recognition, basis of consolidation, significant estimates, any policy changes, and policies that differ from common industry practice.",
   };
 
+  const NOTE_QUESTIONS = {
+    "Business Combinations & Acquisitions":
+      "What companies did {company} acquire during FY{year}? For each acquisition provide: target company name, acquisition date, total purchase price (cash and stock), goodwill recognized, identifiable intangibles, contingent consideration or earnouts. NOTE: ignore any note about the company going public via SPAC or reverse merger — that is not an acquisition of another company.",
+    "Goodwill & Intangible Assets":
+      "What is {company}'s goodwill balance as of FY{year} year-end, how did it change during the year, what are the reporting units, was any impairment recorded, and what intangible assets are on the balance sheet with carrying values and amortization periods?",
+    "Long-term Debt & Credit Facilities":
+      "What debt does {company} carry as of FY{year}? For each facility: type, outstanding balance, interest rate, maturity date, and key covenants.",
+    "Share-Based Compensation":
+      "What stock-based compensation did {company} recognize in FY{year}? Include total expense by function, award types, key assumptions, unrecognized cost, and any modifications.",
+    "Income Taxes":
+      "What was {company}'s income tax provision in FY{year}? Include effective tax rate, current vs deferred components, rate reconciliation items, deferred tax assets and liabilities, and valuation allowances.",
+    "Leases (ASC 842)":
+      "What lease obligations does {company} carry under ASC 842 as of FY{year}? Include ROU assets, lease liabilities, weighted average terms and rates, and future payment schedule.",
+    "Commitments & Contingencies":
+      "What material commitments and contingencies does {company} disclose as of FY{year}? Include legal proceedings, purchase obligations, and guarantees.",
+    "Earnings Per Share":
+      "What were {company}'s basic and diluted EPS for FY{year}? Include weighted average shares, dilutive securities, and any antidilutive items excluded.",
+    "Summary of Significant Accounting Policies":
+      "What are {company}'s most important accounting policies as of FY{year}? Focus on revenue recognition, consolidation, significant estimates, policy changes, and unusual policies.",
+  };
+
+  // Keywords to search for in the full Item 8 text for each note section
+  const NOTE_KEYWORDS = {
+    "Business Combinations & Acquisitions": ["BUSINESS COMBINATIONS", "ACQUISITIONS", "BUSINESS ACQUISITION"],
+    "Goodwill & Intangible Assets":         ["GOODWILL AND INTANGIBLE", "GOODWILL"],
+    "Long-term Debt & Credit Facilities":   ["DEBT", "CREDIT FACILITY", "BORROWINGS"],
+    "Share-Based Compensation":             ["STOCK-BASED COMPENSATION", "SHARE-BASED COMPENSATION", "EQUITY INCENTIVE"],
+    "Income Taxes":                         ["INCOME TAX", "INCOME TAXES"],
+    "Leases (ASC 842)":                     ["LEASES", "LEASE"],
+    "Commitments & Contingencies":          ["COMMITMENTS AND CONTINGENCIES", "COMMITMENTS"],
+    "Earnings Per Share":                   ["EARNINGS PER SHARE", "NET LOSS PER SHARE"],
+    "Summary of Significant Accounting Policies": ["ACCOUNTING POLICIES", "SIGNIFICANT ACCOUNTING"],
+  };
+
   async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName, year) {
-    // Get the plain-English question for this note section
-    const questionTemplate = NOTE_QUESTIONS[targetNote] ||
-      `What does ${companyName}'s FY${year} 10-K disclose about ${targetNote}? Provide all key facts, figures, and policy details.`;
-
-    const question = questionTemplate
+    const question = (NOTE_QUESTIONS[targetNote] || "What does {company} disclose about {note} in FY{year}?")
       .replace(/{company}/g, companyName)
-      .replace(/{year}/g, year || "");
+      .replace(/{year}/g, year || "")
+      .replace(/{note}/g, targetNote);
 
-    const fullText = item8Text;
+    // Search the FULL Item 8 text for the note header keywords
+    // This bypasses notesStartIdx which can land in the wrong place
+    const keywords = NOTE_KEYWORDS[targetNote] || [targetNote.toUpperCase().split(" ")[0]];
 
-    // Try up to 3 chunks of 12000 chars each, stepping through the notes section
-    // This ensures we find notes that appear later in the filing (e.g. Note 3 at char 30k)
-    const chunkSize = 12000;
-    const step      = 10000;
-    const maxChunks = 3;
-
-    for (let i = 0; i < maxChunks; i++) {
-      const chunkStart = notesStartIdx + (i * step);
-      if (chunkStart >= fullText.length) break;
-      const textChunk = fullText.slice(chunkStart, chunkStart + chunkSize);
-
-      console.log(`[DEBUG] ${companyName} chunk ${i+1}, chars ${chunkStart}-${chunkStart+chunkSize}`);
-
-      const prompt = `You are a technical accountant reading ${companyName}'s FY${year || ""} 10-K annual report.
-
-Answer this question using ONLY the filing text below:
-${question}
-
-Filing text:
-${textChunk}
-
-Instructions:
-- Answer ONLY from the text above — do not reference other notes or say "see Note X"
-- If the answer is partially here, extract what you can and note what is missing
-- Quote specific dollar amounts, dates, company names, and terms from the filing
-- If this section does not contain the answer at all, respond with exactly: NOT IN THIS SECTION
-
-Provide a detailed answer with all key facts and figures.`;
-
-      try {
-        const result = await callClaude(prompt, 1500);
-        if (!result.trim().startsWith("NOT IN THIS SECTION")) {
-          console.log(`[DEBUG] ${companyName} found answer in chunk ${i+1}`);
-          return { text: result.trim(), resolvedTitle: targetNote };
+    let foundAt = -1;
+    for (const kw of keywords) {
+      // Look for keyword appearing as a note header (preceded by NOTE X. or on its own line)
+      const patterns = [
+        new RegExp("NOTE\s+\d+[.\s]+" + kw, "i"),
+        new RegExp("\n\s*\d+[.]\s+" + kw, "i"),
+        new RegExp("\n" + kw + "\s*\n", "i"),
+      ];
+      for (const pat of patterns) {
+        const m = pat.exec(item8Text);
+        if (m && m.index > 1000) { // skip first 1000 chars (cover page area)
+          foundAt = m.index;
+          console.log("[DEBUG] " + companyName + " found keyword '" + kw + "' at char " + foundAt);
+          break;
         }
-        console.log(`[DEBUG] ${companyName} chunk ${i+1}: not found, trying next`);
-      } catch(e) {
-        console.log(`[DEBUG] ${companyName} chunk ${i+1} error: ${e.message}`);
       }
+      if (foundAt > -1) break;
     }
 
-    console.log(`[DEBUG] ${companyName} not found in any chunk`);
+    // If keyword search failed, fall back to notesStartIdx
+    const chunkStart = foundAt > -1 ? foundAt : notesStartIdx;
+    const textChunk  = item8Text.slice(chunkStart, chunkStart + 14000);
+
+    console.log("[DEBUG] " + companyName + " extracting from char " + chunkStart + ", chunk length: " + textChunk.length);
+
+    const prompt = "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K.\n\nAnswer this question from the filing text below:\n" + question + "\n\nFiling text:\n" + textChunk + "\n\nInstructions:\n- Answer ONLY from the text above\n- Include ALL specific dollar amounts, dates, company names, and terms\n- Do not say 'see Note X' — extract the actual information\n- If this section genuinely does not contain the answer, say: NOT IN THIS SECTION\n\nProvide a detailed answer with all key facts.";
+
+    try {
+      const result = await callClaude(prompt, 1500);
+      if (!result.trim().startsWith("NOT IN THIS SECTION")) {
+        console.log("[DEBUG] " + companyName + " extraction succeeded");
+        return { text: result.trim(), resolvedTitle: targetNote };
+      }
+      // If not found and we used keyword position, try notesStartIdx as backup
+      if (foundAt > -1 && notesStartIdx !== foundAt) {
+        const backup = item8Text.slice(notesStartIdx, notesStartIdx + 14000);
+        const prompt2 = prompt.replace(textChunk, backup);
+        const result2 = await callClaude(prompt2, 1500);
+        if (!result2.trim().startsWith("NOT IN THIS SECTION")) {
+          return { text: result2.trim(), resolvedTitle: targetNote };
+        }
+      }
+    } catch(e) {
+      console.log("[DEBUG] " + companyName + " error: " + e.message);
+    }
+
     return { text: null, resolvedTitle: targetNote };
   }
 
