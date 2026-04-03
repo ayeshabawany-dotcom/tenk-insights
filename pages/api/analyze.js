@@ -75,8 +75,28 @@ export default async function handler(req, res) {
     };
   }
 
+  const KNOWN_TICKERS = {
+    "visa": "V", "mastercard": "MA", "google": "GOOGL", "alphabet": "GOOGL",
+    "facebook": "META", "meta": "META", "amazon": "AMZN", "apple": "AAPL",
+    "microsoft": "MSFT", "netflix": "NFLX", "tesla": "TSLA", "nvidia": "NVDA",
+    "jpmorgan": "JPM", "jp morgan": "JPM", "goldman sachs": "GS", "goldman": "GS",
+    "morgan stanley": "MS", "bank of america": "BAC", "wells fargo": "WFC",
+    "citigroup": "C", "citi": "C", "american express": "AXP", "amex": "AXP",
+    "paypal": "PYPL", "salesforce": "CRM", "oracle": "ORCL", "adobe": "ADBE",
+    "intel": "INTC", "amd": "AMD", "qualcomm": "QCOM", "broadcom": "AVGO",
+    "disney": "DIS", "walmart": "WMT", "target": "TGT", "costco": "COST",
+    "exxon": "XOM", "chevron": "CVX", "johnson & johnson": "JNJ", "pfizer": "PFE",
+    "unitedhealth": "UNH", "berkshire": "BRK.B", "coca cola": "KO", "pepsi": "PEP",
+    "pepsico": "PEP", "boeing": "BA", "caterpillar": "CAT", "ibm": "IBM",
+    "uber": "UBER", "lyft": "LYFT", "airbnb": "ABNB", "spotify": "SPOT",
+    "shopify": "SHOP", "square": "SQ", "block": "SQ", "twitter": "TWTR",
+    "snap": "SNAP", "pinterest": "PINS", "linkedin": "MSFT",
+  };
+
   async function findFiling(company, year) {
-    const queries = buildSearchQuery(company, year);
+    const key = company.trim().toLowerCase();
+    const resolvedInput = KNOWN_TICKERS[key] ? KNOWN_TICKERS[key] : company;
+    const queries = buildSearchQuery(resolvedInput, year);
     const queryList = Object.values(queries).filter(Boolean);
     let lastError = null;
     for (const q of queryList) {
