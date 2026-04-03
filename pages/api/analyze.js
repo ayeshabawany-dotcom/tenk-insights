@@ -242,7 +242,8 @@ Important rules:
 - The actual revenue FIGURES (disaggregated by product/service/geography) are in a SEPARATE note, often called "Disaggregation of Revenue", "Segment Information", "Geographic Information", or "Revenue".
 - For any revenue-related topic: ALWAYS return both the policy note AND the data/breakdown note as related notes.
 - Some companies embed Revenue Recognition policy inside "Summary of Significant Accounting Policies" (Apple does this) — if so, return that as a related note.
-- "Business Combinations" might be called "Acquisitions" or "Business Acquisitions and Divestitures".
+- "Business Combinations & Acquisitions" means M&A activity — acquisitions of other companies. Look for notes titled "Acquisitions", "Business Acquisitions", "Acquisition of [Company Name]", etc.
+- IMPORTANT: Do NOT select a note about a company's own SPAC merger or reverse merger going-public transaction. Those notes are typically titled "Business Combination" (singular) and describe the company's own IPO process with stock exchanges, warrant conversions, PIPE financing — not acquisitions of other companies. If the only "Business Combination" note is about a SPAC/reverse merger, look for a separate "Acquisitions" note instead.
 - "Share-Based Compensation" might be "Stock-Based Compensation" or "Equity Awards".
 - Always return the primary note AND all related notes that contain either policy text OR actual financial data/tables for this topic.
 
