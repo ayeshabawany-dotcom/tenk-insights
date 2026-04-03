@@ -464,10 +464,10 @@ Respond with ONLY valid JSON, no markdown:
       // Store extracted note text for Q&A (20k chars of the specific note)
       parsed.rawTextA   = trimA.slice(0, 20000);
       parsed.rawTextB   = trimB.slice(0, 20000);
-      // Also store broader notes context (40k chars) for Q&A deep search
-      // This ensures tables in adjacent notes are reachable when user asks questions
-      parsed.notesContextA = item8A.slice(startA, startA + 40000);
-      parsed.notesContextB = item8B.slice(startB, startB + 40000);
+      // Store the FULL notes section for Q&A — no cap
+      // Microsoft's Note 19 can be at character 80,000+ so we need everything
+      parsed.notesContextA = item8A.slice(startA);
+      parsed.notesContextB = item8B.slice(startB);
       return res.status(200).json(parsed);
     }
 
@@ -512,35 +512,38 @@ Return ONLY valid JSON:
           .replace(/[^a-z\s]/g, "").split(/\s+/)
           .filter(w => w.length > 4 && !["give","what","show","tell","much","many","does","have","from","this","that","which","their","about"].includes(w));
 
-        // Find the best keyword hit in the text
         let bestIdx = -1;
-        let bestKw = "";
+
+        // First pass: look for keyword hits near tables or dollar amounts
         for (const kw of keywords) {
-          // Search from position 1000 onwards to skip note headers
-          const searchArea = fullText.toLowerCase();
           let pos = 0;
-          while (pos < searchArea.length) {
-            const found = searchArea.indexOf(kw, pos);
+          while (pos < fullText.length) {
+            const found = fullText.toLowerCase().indexOf(kw, pos);
             if (found === -1) break;
-            // Prefer hits that are near table markers or dollar signs
-            const nearby = fullText.slice(Math.max(0, found - 200), found + 200);
-            const isNearTable = nearby.includes("[TABLE]") || nearby.includes("$") || nearby.includes(" | ");
-            if (isNearTable && (bestIdx === -1 || found < bestIdx)) {
+            const nearby = fullText.slice(Math.max(0, found - 300), found + 300);
+            const isNearData = nearby.includes("[TABLE]") || nearby.includes(" | ") ||
+              /\$[\d,]+/.test(nearby) || /\d+,\d{3}/.test(nearby);
+            if (isNearData && (bestIdx === -1 || found < bestIdx)) {
               bestIdx = found;
-              bestKw = kw;
               break;
             }
             pos = found + 1;
           }
         }
 
-        if (bestIdx > 500) {
-          // Extract 6000 chars centered around the best hit
-          const start = Math.max(0, bestIdx - 1000);
-          return fullText.slice(start, start + 6000);
+        // Second pass: look for any hit if no data-adjacent hit found
+        if (bestIdx === -1) {
+          for (const kw of keywords) {
+            const found = fullText.toLowerCase().indexOf(kw, 500);
+            if (found > 0 && (bestIdx === -1 || found < bestIdx)) bestIdx = found;
+          }
         }
-        // Fallback: first 6000 chars
-        return fullText.slice(0, 6000);
+
+        if (bestIdx > 200) {
+          const start = Math.max(0, bestIdx - 500);
+          return fullText.slice(start, start + 8000);
+        }
+        return fullText.slice(0, 8000);
       }
 
       const contextA = extractRelevantContext(rawA, question);
