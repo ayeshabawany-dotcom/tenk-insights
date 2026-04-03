@@ -128,32 +128,42 @@ export default async function handler(req, res) {
 
   // ── Find where notes start in Item 8 (skip auditor report) ────────────────
   function findNotesStart(text) {
-    // Use the LAST occurrence of notes header markers — not the first.
-    // The first occurrence is almost always in the table of contents
-    // (e.g. "NOTES TO CONSOLIDATED FINANCIAL STATEMENTS .... F-15")
-    // The last occurrence is where the actual notes begin.
+    // Strategy: find ALL occurrences of the notes header,
+    // then pick the one followed by the most note content
+    // (i.e. the one where Note 1, Note 2... actually follow).
+    // This handles filings where the header appears in TOC,
+    // at the actual notes start, AND again as a late-section label.
+
     const markers = [
       /NOTES TO CONSOLIDATED FINANCIAL STATEMENTS/gi,
       /NOTES TO FINANCIAL STATEMENTS/gi,
       /Notes to the Consolidated Financial/gi,
     ];
 
+    const candidates = [];
     for (const re of markers) {
-      let lastIdx = -1;
       let m;
-      while ((m = re.exec(text)) !== null) lastIdx = m.index;
-      if (lastIdx !== -1) return lastIdx;
+      while ((m = re.exec(text)) !== null) candidates.push(m.index);
     }
 
-    // Fallback: find NOTE 1 followed by content (not a page number)
-    const note1Re = /NOTE\s+1[\s\.\-—]+[A-Z]/gi;
-    let lastNote1 = -1;
-    let m2;
-    while ((m2 = note1Re.exec(text)) !== null) lastNote1 = m2.index;
-    if (lastNote1 !== -1) return lastNote1;
+    if (candidates.length === 0) {
+      return Math.floor(text.length * 0.2);
+    }
 
-    // Last resort: skip first 20% of Item 8 (audit report area)
-    return Math.floor(text.length * 0.2);
+    // Filter: remove candidates in the last 15% of the document.
+    // Those are end-of-document repeat headers (e.g. SOUN's final section label).
+    // Then take the LAST remaining candidate — skips TOC, lands at real notes start.
+    const threshold = text.length * 0.85;
+    const filtered  = candidates.filter(idx => idx < threshold);
+
+    if (filtered.length > 0) {
+      return filtered[filtered.length - 1];
+    }
+
+    // All near end — take second-to-last if possible
+    if (candidates.length > 1) return candidates[candidates.length - 2];
+    return candidates[0];
+  
   }
 
   // ── Build note index from full notes text ──────────────────────────────────
