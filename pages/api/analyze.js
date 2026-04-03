@@ -266,23 +266,52 @@ export default async function handler(req, res) {
 
       function buildNoteIndex(text) {
         const notes = [];
-        // Match patterns like: NOTE 1, Note 2 —, NOTE 3., 4. TITLE, NOTE FOUR
-        const headerRe = /(?:^|\n)\s{0,6}(?:NOTE\s+|Note\s+)?(\d{1,2})[.\s\-—–]+([A-Z][^\n]{4,80})/gm;
-        let m;
-        while ((m = headerRe.exec(text)) !== null) {
-          const num   = parseInt(m[1]);
-          const title = m[2].trim().replace(/\s+/g, " ");
-          if (num >= 1 && num <= 40 && title.length > 4) {
-            notes.push({ num, title, startIdx: m.index });
+
+        // Pattern 1: "NOTE 1 —", "Note 2.", "NOTE 3 " (explicit NOTE keyword)
+        const re1 = /(?:^|
+)\s{0,6}(?:NOTE\s+|Note\s+)(\d{1,2})[.\s\-—–]+([A-Z][^
+]{4,80})/gm;
+        // Pattern 2: "1. TITLE" or "1 TITLE" at line start (numbered without NOTE keyword)
+        const re2 = /(?:^|
+)\s{0,4}(\d{1,2})\.\s+([A-Z][A-Z\s]{4,60})
+/gm;
+        // Pattern 3: Apple-style — uppercase title alone on a line (no number)
+        // We assign synthetic numbers based on order found
+        const re3 = /(?:^|
+)((?:REVENUE RECOGNITION|SEGMENT INFORMATION|INCOME TAXES|BUSINESS COMBINATIONS|GOODWILL|SHARE-BASED COMPENSATION|LEASES|FAIR VALUE|COMMITMENTS|EARNINGS PER SHARE|RESTRUCTURING|RELATED PARTY|GEOGRAPHIC)[^
+]{0,60})
+/gm;
+
+        for (const re of [re1, re2]) {
+          let m;
+          while ((m = re.exec(text)) !== null) {
+            const num   = parseInt(m[1]);
+            const title = m[2].trim().replace(/\s+/g, " ");
+            if (num >= 1 && num <= 40 && title.length > 4) {
+              notes.push({ num, title, startIdx: m.index });
+            }
           }
         }
+
+        // If very few numbered notes found, try Apple-style uppercase headers
+        if (notes.length < 3) {
+          let syntheticNum = 1;
+          let m;
+          while ((m = re3.exec(text)) !== null) {
+            const title = m[1].trim().replace(/\s+/g, " ");
+            notes.push({ num: syntheticNum++, title, startIdx: m.index, synthetic: true });
+          }
+        }
+
         // Deduplicate by note number (keep first occurrence)
         const seen = new Set();
-        return notes.filter(n => {
-          if (seen.has(n.num)) return false;
-          seen.add(n.num);
-          return true;
-        });
+        return notes
+          .sort((a, b) => a.startIdx - b.startIdx)
+          .filter(n => {
+            if (seen.has(n.num)) return false;
+            seen.add(n.num);
+            return true;
+          });
       }
 
       async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName) {
@@ -370,11 +399,39 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
         }
 
         // Fallback: keyword search across full notes text
-        if (noteStart === -1) {
-          const kw = targetNote.toLowerCase().split(/[\s&,]+/).filter(w => w.length > 4)[0] || targetNote.toLowerCase();
-          const kwIdx = fullNotes.toLowerCase().indexOf(kw);
-          noteStart = kwIdx > 0 ? Math.max(0, kwIdx - 300) : 0;
-          noteEnd   = noteStart + 8000;
+        // Also used when note index is small (< 3 notes) — Apple, Google style filings
+        if (noteStart === -1 || index.length < 3) {
+          // Search for the most specific keywords from the target note name
+          const kwList = targetNote.toLowerCase()
+            .replace(/[^a-z\s]/g, "").split(/\s+/)
+            .filter(w => w.length > 4 && !["notes","financial","statements","information"].includes(w));
+
+          let bestIdx = -1;
+          for (const kw of kwList) {
+            const idx = fullNotes.toLowerCase().indexOf(kw);
+            if (idx > 100 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx;
+          }
+
+          if (bestIdx > 0 && noteStart === -1) {
+            noteStart = Math.max(0, bestIdx - 500);
+            noteEnd   = noteStart + 8000;
+          } else if (index.length < 3 && bestIdx > 0) {
+            // Supplement existing extraction with direct keyword hit if it's in a different area
+            const kwStart = Math.max(0, bestIdx - 500);
+            if (Math.abs(kwStart - noteStart) > 2000) {
+              const kwText = fullNotes.slice(kwStart, kwStart + 5000);
+              return {
+                text: (noteStart >= 0 ? fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 4000)) : "") + "
+
+=== Direct keyword match ===
+" + kwText,
+                resolvedTitle
+              };
+            }
+          } else if (noteStart === -1) {
+            noteStart = 0;
+            noteEnd   = 8000;
+          }
         }
 
         let extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
