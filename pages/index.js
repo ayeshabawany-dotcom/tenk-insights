@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Head from "next/head";
 
-const YEARS = Array.from({ length: 11 }, (_, i) => String(2024 - i));
+const YEARS = Array.from({ length: 12 }, (_, i) => String(2025 - i));
 
 const NOTE_SECTIONS = [
   "Business Combinations & Acquisitions",
