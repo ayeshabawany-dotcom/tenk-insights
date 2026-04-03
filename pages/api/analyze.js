@@ -119,10 +119,7 @@ export default async function handler(req, res) {
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
       .replace(/&#\d+;/g, " ")
       .replace(/[ 	]{3,}/g, " ")
-      .replace(/
-{3,}/g, "
-
-")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
     if (!plain || plain.length < 1000) throw new Error("Could not extract filing text.");
     console.log(`[DEBUG] Full filing text length: ${plain.length}`);
