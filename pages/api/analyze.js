@@ -225,66 +225,79 @@ for (const re of [re1, re2, re4]) {
   }
 
   // ── Find and extract the relevant note section ─────────────────────────────
-  async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName) {
-    // Simple, reliable approach: pass the notes text directly to Claude.
-    // Claude reads the actual content and finds the right section regardless of
-    // how it is titled — distinguishing e.g. SPAC "Business Combination" from
-    // M&A "Business Combinations" by reading what the note actually says.
+  // Plain-English question map — each dropdown item maps to a specific question
+  // Claude answers from the full filing text rather than hunting for a specific note
+  const NOTE_QUESTIONS = {
+    "Business Combinations & Acquisitions":
+      "What companies did {company} acquire during FY{year}? For each acquisition provide: target company name, acquisition date, total purchase price (cash and stock components), goodwill recognized, identifiable intangibles acquired, contingent consideration or earnout provisions, and how the acquisition was accounted for. NOTE: ignore any note about the company's own SPAC or reverse merger going-public transaction — that is not an acquisition.",
+    "Goodwill & Intangible Assets":
+      "What is {company}'s goodwill balance as of FY{year} year-end, how did it change during the year, what are the reporting units, was any impairment recorded, and what intangible assets are on the balance sheet with their carrying values and amortization periods?",
+    "Long-term Debt & Credit Facilities":
+      "What debt does {company} carry as of FY{year}? For each facility: type, outstanding balance, interest rate, maturity date, key covenants, and any significant changes during the year.",
+    "Share-Based Compensation":
+      "What stock-based compensation did {company} recognize in FY{year}? Include total expense by function (R&D, G&A, sales), types of awards (options, RSUs, PSUs), key assumptions, unrecognized compensation cost, and any modifications.",
+    "Income Taxes":
+      "What was {company}'s income tax provision in FY{year}? Include effective tax rate, current vs deferred components, major rate reconciliation items, deferred tax assets and liabilities, valuation allowances, and unrecognized tax benefits.",
+    "Leases (ASC 842)":
+      "What lease obligations does {company} carry under ASC 842 as of FY{year}? Include operating and finance lease ROU assets, lease liabilities, weighted average terms and discount rates, and future payment schedule.",
+    "Commitments & Contingencies":
+      "What material commitments and contingencies does {company} disclose as of FY{year}? Include legal proceedings, purchase obligations, guarantees, and how management has assessed them.",
+    "Earnings Per Share":
+      "What were {company}'s basic and diluted EPS for FY{year}? Show weighted average shares, dilutive securities, and any items affecting per share figures.",
+    "Summary of Significant Accounting Policies":
+      "What are {company}'s most important accounting policies as of FY{year}? Focus on revenue recognition, basis of consolidation, significant estimates, any policy changes, and policies that differ from common industry practice.",
+  };
 
-    const fullNotes = item8Text.slice(notesStartIdx);
+  async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName, year) {
+    // Get the plain-English question for this note section
+    const questionTemplate = NOTE_QUESTIONS[targetNote] ||
+      `What does ${companyName}'s FY${year} 10-K disclose about ${targetNote}? Provide all key facts, figures, and policy details.`;
 
-    // Send a generous window — enough to cover notes 1 through ~10
-    // Use first 14000 chars to capture early notes like Note 3
-    const notesChunk = fullNotes.slice(0, 14000);
+    const question = questionTemplate
+      .replace(/{company}/g, companyName)
+      .replace(/{year}/g, year || "");
 
-    console.log(`[DEBUG] ${companyName} notesStartIdx: ${notesStartIdx}, chunk length: ${notesChunk.length}`);
+    // Use full Item 8 text — don't restrict by notesStartIdx
+    // This ensures we find content wherever it appears in the filing
+    const fullText = item8Text;
+    // Send up to 12000 chars starting from notes section
+    const textChunk = fullText.slice(notesStartIdx, notesStartIdx + 12000);
 
-    const prompt = `You are a technical accountant reading the Notes to Financial Statements from ${companyName}'s 10-K annual report.
+    console.log(`[DEBUG] ${companyName} extracting: "${targetNote}", notesStartIdx: ${notesStartIdx}`);
 
-Find and extract the note section that covers: "${targetNote}"
+    const prompt = `You are a technical accountant reading ${companyName}'s FY${year || ""} 10-K annual report (Item 8: Financial Statements and Notes).
 
-Critical distinctions:
-- "Business Combinations & Acquisitions" means acquisitions of OTHER companies (e.g. Amelia AI, SYNQ3). Do NOT select a note about the company's own SPAC merger or reverse recapitalization going-public transaction — those describe how the reporting company itself became public, not acquisitions.
-- "Revenue Recognition" means accounting policy for how revenue is recognized — not revenue figures/tables
-- "Share-Based Compensation" means stock option and RSU expense disclosures
-- Always read the actual content of each note, not just the title
+Answer this specific question from the filing text below:
+${question}
 
-Notes text:
-${notesChunk}
+Filing text:
+${textChunk}
 
-Return ONLY valid JSON:
-{
-  "found": true,
-  "resolvedTitle": "Exact note title as written in the filing",
-  "extractedText": "The complete text of that note section verbatim"
-}
-If not found: { "found": false, "resolvedTitle": null, "extractedText": null }`;
+Instructions:
+- Answer ONLY from what is in the text above
+- If the answer spans multiple notes, include all relevant details
+- Quote specific dollar amounts, dates, and terms from the filing
+- If this chunk does not contain the answer, say "NOT IN THIS SECTION"
+
+Provide your answer as a detailed paragraph or structured list.`;
 
     try {
-      const result = await callClaude(prompt, 2500);
-      const parsed = extractJSON(result);
+      const result = await callClaude(prompt, 1500);
 
-      if (parsed.found && parsed.extractedText && parsed.extractedText.length > 100) {
-        console.log(`[DEBUG] ${companyName} found: "${parsed.resolvedTitle}"`);
-        return { text: parsed.extractedText, resolvedTitle: parsed.resolvedTitle };
-      }
-
-      // If not found in first chunk, try a second window further into the notes
-      if (!parsed.found && fullNotes.length > 14000) {
-        console.log(`[DEBUG] ${companyName} not found in first chunk, trying second window`);
-        const chunk2 = fullNotes.slice(10000, 28000);
-        const prompt2 = prompt.replace(notesChunk, chunk2);
-        const result2 = await callClaude(prompt2, 2500);
-        const parsed2 = extractJSON(result2);
-        if (parsed2.found && parsed2.extractedText) {
-          console.log(`[DEBUG] ${companyName} found in second chunk: "${parsed2.resolvedTitle}"`);
-          return { text: parsed2.extractedText, resolvedTitle: parsed2.resolvedTitle };
+      if (result.includes("NOT IN THIS SECTION") && fullText.length > notesStartIdx + 12000) {
+        // Try next chunk
+        console.log(`[DEBUG] ${companyName} not in first chunk, trying next 12000 chars`);
+        const chunk2 = fullText.slice(notesStartIdx + 8000, notesStartIdx + 24000);
+        const prompt2 = prompt.replace(textChunk, chunk2);
+        const result2 = await callClaude(prompt2, 1500);
+        if (!result2.includes("NOT IN THIS SECTION")) {
+          return { text: result2.trim(), resolvedTitle: targetNote };
         }
       }
 
-      return { text: null, resolvedTitle: targetNote };
-    } catch (e) {
-      console.log(`[DEBUG] ${companyName} extraction error: ${e.message}`);
+      return { text: result.trim(), resolvedTitle: targetNote };
+    } catch(e) {
+      console.log(`[DEBUG] ${companyName} error: ${e.message}`);
       return { text: null, resolvedTitle: targetNote };
     }
   }
@@ -310,8 +323,8 @@ If not found: { "found": false, "resolvedTitle": null, "extractedText": null }`;
       const startB = findNotesStart(item8B);
 
       const [extractedA, extractedB] = await Promise.all([
-        findAndExtractNote(item8A, startA, noteSection, filingA.companyName),
-        findAndExtractNote(item8B, startB, noteSection, filingB.companyName),
+        findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA),
+        findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB),
       ]);
 
       const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
@@ -334,11 +347,10 @@ Note as filed: "${resolvedTitleB}"
 ${trimB.slice(0, 5000)}
 
 Instructions:
-- Compare these two disclosures on 8-10 specific dimensions
-- IMPORTANT: Stay strictly focused on "${noteSection}" — do NOT include dimensions about income taxes, leases, asset useful lives, or other topics unless they are directly part of this note
-- Use ONLY information present in the filing text above
-- Extract specific dollar amounts, percentages, and figures wherever they appear in the text
-- Reference concrete numbers and policy language from the actual filing text
+- Compare these two filings on 8-10 specific dimensions relevant to "${noteSection}"
+- Use ONLY information present in the filing answers above — do not invent anything
+- Reference specific dollar amounts, dates, company names, and terms from the actual filing text
+- If one filing has information the other lacks, note that asymmetry explicitly
 
 Respond with ONLY valid JSON, no markdown:
 {
