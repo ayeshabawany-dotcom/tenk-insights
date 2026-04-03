@@ -139,9 +139,7 @@ export default async function handler(req, res) {
     // We want the FIRST clean occurrence after any table of contents reference.
 
     // First pass: look for clean header (no "Continued")
-    const cleanRe = /(?:^|
-)[ 	]*NOTES TO (?:CONSOLIDATED )?FINANCIAL STATEMENTS[ 	]*
-/gi;
+    const cleanRe = /(?:^|\n)[ \t]*NOTES TO (?:CONSOLIDATED )?FINANCIAL STATEMENTS[ \t]*\n/gi;
     const cleanCandidates = [];
     let cm;
     while ((cm = cleanRe.exec(text)) !== null) cleanCandidates.push(cm.index);
