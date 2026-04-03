@@ -134,35 +134,46 @@ export default async function handler(req, res) {
     // This handles filings where the header appears in TOC,
     // at the actual notes start, AND again as a late-section label.
 
-    const markers = [
-      /NOTES TO CONSOLIDATED FINANCIAL STATEMENTS/gi,
-      /NOTES TO FINANCIAL STATEMENTS/gi,
-      /Notes to the Consolidated Financial/gi,
-    ];
+    // Strategy: find the notes header WITHOUT "(Continued)" — that's the real start.
+    // "(Continued)" headers appear on every page and are pagination artifacts.
+    // We want the FIRST clean occurrence after any table of contents reference.
 
-    const candidates = [];
-    for (const re of markers) {
-      let m;
-      while ((m = re.exec(text)) !== null) candidates.push(m.index);
+    // First pass: look for clean header (no "Continued")
+    const cleanRe = /(?:^|
+)[ 	]*NOTES TO (?:CONSOLIDATED )?FINANCIAL STATEMENTS[ 	]*
+/gi;
+    const cleanCandidates = [];
+    let cm;
+    while ((cm = cleanRe.exec(text)) !== null) cleanCandidates.push(cm.index);
+
+    if (cleanCandidates.length > 0) {
+      // Skip the first one if it looks like a TOC entry (within first 5% of document)
+      const tocThreshold = text.length * 0.05;
+      const afterToc = cleanCandidates.filter(idx => idx > tocThreshold);
+      if (afterToc.length > 0) return afterToc[0];
+      return cleanCandidates[cleanCandidates.length - 1];
     }
 
-    if (candidates.length === 0) {
-      return Math.floor(text.length * 0.2);
-    }
+    // Fallback: any notes header, filter last 15%, take last remaining
+    const allRe = /NOTES TO (?:CONSOLIDATED )?FINANCIAL STATEMENTS/gi;
+    const allCandidates = [];
+    let am;
+    while ((am = allRe.exec(text)) !== null) allCandidates.push(am.index);
 
-    // Filter: remove candidates in the last 15% of the document.
-    // Those are end-of-document repeat headers (e.g. SOUN's final section label).
-    // Then take the LAST remaining candidate — skips TOC, lands at real notes start.
+    if (allCandidates.length === 0) return Math.floor(text.length * 0.2);
+
     const threshold = text.length * 0.85;
-    const filtered  = candidates.filter(idx => idx < threshold);
-
+    const filtered  = allCandidates.filter(idx => idx < threshold);
     if (filtered.length > 0) {
-      return filtered[filtered.length - 1];
+      // Take FIRST candidate after TOC (not last — avoids "(Continued)" pages)
+      const tocThreshold = text.length * 0.05;
+      const afterToc = filtered.filter(idx => idx > tocThreshold);
+      if (afterToc.length > 0) return afterToc[0];
+      return filtered[0];
     }
 
-    // All near end — take second-to-last if possible
-    if (candidates.length > 1) return candidates[candidates.length - 2];
-    return candidates[0];
+    if (allCandidates.length > 1) return allCandidates[allCandidates.length - 2];
+    return allCandidates[0];
   
   }
 
