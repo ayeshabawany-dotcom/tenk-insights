@@ -257,49 +257,51 @@ for (const re of [re1, re2, re4]) {
       .replace(/{company}/g, companyName)
       .replace(/{year}/g, year || "");
 
-    // Use full Item 8 text — don't restrict by notesStartIdx
-    // This ensures we find content wherever it appears in the filing
     const fullText = item8Text;
-    // Send up to 12000 chars starting from notes section
-    const textChunk = fullText.slice(notesStartIdx, notesStartIdx + 12000);
 
-    console.log(`[DEBUG] ${companyName} extracting: "${targetNote}", notesStartIdx: ${notesStartIdx}`);
+    // Try up to 3 chunks of 12000 chars each, stepping through the notes section
+    // This ensures we find notes that appear later in the filing (e.g. Note 3 at char 30k)
+    const chunkSize = 12000;
+    const step      = 10000;
+    const maxChunks = 3;
 
-    const prompt = `You are a technical accountant reading ${companyName}'s FY${year || ""} 10-K annual report (Item 8: Financial Statements and Notes).
+    for (let i = 0; i < maxChunks; i++) {
+      const chunkStart = notesStartIdx + (i * step);
+      if (chunkStart >= fullText.length) break;
+      const textChunk = fullText.slice(chunkStart, chunkStart + chunkSize);
 
-Answer this specific question from the filing text below:
+      console.log(`[DEBUG] ${companyName} chunk ${i+1}, chars ${chunkStart}-${chunkStart+chunkSize}`);
+
+      const prompt = `You are a technical accountant reading ${companyName}'s FY${year || ""} 10-K annual report.
+
+Answer this question using ONLY the filing text below:
 ${question}
 
 Filing text:
 ${textChunk}
 
 Instructions:
-- Answer ONLY from what is in the text above
-- If the answer spans multiple notes, include all relevant details
-- Quote specific dollar amounts, dates, and terms from the filing
-- If this chunk does not contain the answer, say "NOT IN THIS SECTION"
+- Answer ONLY from the text above — do not reference other notes or say "see Note X"
+- If the answer is partially here, extract what you can and note what is missing
+- Quote specific dollar amounts, dates, company names, and terms from the filing
+- If this section does not contain the answer at all, respond with exactly: NOT IN THIS SECTION
 
-Provide your answer as a detailed paragraph or structured list.`;
+Provide a detailed answer with all key facts and figures.`;
 
-    try {
-      const result = await callClaude(prompt, 1500);
-
-      if (result.includes("NOT IN THIS SECTION") && fullText.length > notesStartIdx + 12000) {
-        // Try next chunk
-        console.log(`[DEBUG] ${companyName} not in first chunk, trying next 12000 chars`);
-        const chunk2 = fullText.slice(notesStartIdx + 8000, notesStartIdx + 24000);
-        const prompt2 = prompt.replace(textChunk, chunk2);
-        const result2 = await callClaude(prompt2, 1500);
-        if (!result2.includes("NOT IN THIS SECTION")) {
-          return { text: result2.trim(), resolvedTitle: targetNote };
+      try {
+        const result = await callClaude(prompt, 1500);
+        if (!result.trim().startsWith("NOT IN THIS SECTION")) {
+          console.log(`[DEBUG] ${companyName} found answer in chunk ${i+1}`);
+          return { text: result.trim(), resolvedTitle: targetNote };
         }
+        console.log(`[DEBUG] ${companyName} chunk ${i+1}: not found, trying next`);
+      } catch(e) {
+        console.log(`[DEBUG] ${companyName} chunk ${i+1} error: ${e.message}`);
       }
-
-      return { text: result.trim(), resolvedTitle: targetNote };
-    } catch(e) {
-      console.log(`[DEBUG] ${companyName} error: ${e.message}`);
-      return { text: null, resolvedTitle: targetNote };
     }
+
+    console.log(`[DEBUG] ${companyName} not found in any chunk`);
+    return { text: null, resolvedTitle: targetNote };
   }
 
   // ── ACTIONS ────────────────────────────────────────────────────────────────
