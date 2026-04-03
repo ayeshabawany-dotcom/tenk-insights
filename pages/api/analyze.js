@@ -11,26 +11,33 @@ export default async function handler(req, res) {
   const { action, companyA, yearA, companyB, yearB, noteSection, tableData, question } = req.body;
 
   // ── Claude helper ──────────────────────────────────────────────────────────
-  async function callClaude(prompt, maxTokens) {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: maxTokens || 1500,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!resp.ok) {
+  async function callClaude(prompt, maxTokens, retries = 2) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: maxTokens || 1500,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+      }
+      if (resp.status === 429 && attempt < retries) {
+        console.log(`[DEBUG] Rate limited (429), waiting 4s before retry ${attempt + 1}`);
+        await new Promise(r => setTimeout(r, 4000));
+        continue;
+      }
       const err = await resp.json().catch(() => ({}));
       throw new Error(err?.error?.message || `Claude API error ${resp.status}`);
     }
-    const data = await resp.json();
-    return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
   }
 
   function extractJSON(text) {
@@ -362,10 +369,9 @@ for (const re of [re1, re2, re4]) {
     const startA = findNotesStart(item8A);
     const startB = findNotesStart(item8B);
 
-    const [extractedA, extractedB] = await Promise.all([
-      findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA),
-      findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB),
-    ]);
+    // Run sequentially to avoid rate limits (full filing text = large token count)
+    const extractedA = await findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA);
+    const extractedB = await findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB);
 
     const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
     const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
