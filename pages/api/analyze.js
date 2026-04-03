@@ -181,7 +181,7 @@ export default async function handler(req, res) {
     // Pattern 2: "1. TITLE" at line start
     const re2 = /(?:^|\n)\s{0,4}(\d{1,2})\.\s+([A-Z][A-Z\s]{4,60})\n/gm;
     // Pattern 4: Microsoft-style "19 SEGMENT INFORMATION" — number space ALL-CAPS title
-    const re4 = /(?:^|\n)\s{0,4}(\d{1,2})\s+([A-Z]{2,}(?:\s+[A-Z]{2,}){1,6})(?:\s|\n)/gm;
+    const re4 = /(?:^|\n)\s{0,4}(\d{1,2})\s+([A-Z]{2,}(?:\s+[A-Z]{2,}){0,8})(?=\s+[A-Z][a-z]|\s*\n)/gm;
 
 for (const re of [re1, re2, re4]) {
       let m;
