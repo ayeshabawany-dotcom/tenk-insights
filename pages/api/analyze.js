@@ -135,51 +135,35 @@ export default async function handler(req, res) {
 
   // ── Find where notes start in Item 8 (skip auditor report) ────────────────
   function findNotesStart(text) {
-    // Strategy: find ALL occurrences of the notes header,
-    // then pick the one followed by the most note content
-    // (i.e. the one where Note 1, Note 2... actually follow).
-    // This handles filings where the header appears in TOC,
-    // at the actual notes start, AND again as a late-section label.
+    // Most reliable anchor: "See accompanying notes" appears as a footer
+    // on EVERY financial statement page (balance sheet, income, cash flows, equity).
+    // The LAST occurrence marks the end of the equity statement — right before Note 1.
+    // This works across all company formats and never appears as a pagination artifact.
 
-    // Strategy: find the notes header WITHOUT "(Continued)" — that's the real start.
-    // "(Continued)" headers appear on every page and are pagination artifacts.
-    // We want the FIRST clean occurrence after any table of contents reference.
+    const markers = [
+      /see accompanying notes to (?:consolidated )?financial statements/gi,
+      /the accompanying notes are an integral part/gi,
+      /see notes to (?:consolidated )?financial statements/gi,
+    ];
 
-    // First pass: look for clean header (no "Continued")
-    const cleanRe = /(?:^|\n)[ \t]*NOTES TO (?:CONSOLIDATED )?FINANCIAL STATEMENTS[ \t]*\n/gi;
-    const cleanCandidates = [];
-    let cm;
-    while ((cm = cleanRe.exec(text)) !== null) cleanCandidates.push(cm.index);
-
-    if (cleanCandidates.length > 0) {
-      // Skip the first one if it looks like a TOC entry (within first 5% of document)
-      const tocThreshold = text.length * 0.05;
-      const afterToc = cleanCandidates.filter(idx => idx > tocThreshold);
-      if (afterToc.length > 0) return afterToc[0];
-      return cleanCandidates[cleanCandidates.length - 1];
+    let lastIdx = -1;
+    for (const re of markers) {
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const endOfLine = text.indexOf("\n", m.index + m[0].length);
+        if (endOfLine > lastIdx) lastIdx = endOfLine;
+      }
     }
 
-    // Fallback: any notes header, filter last 15%, take last remaining
-    const allRe = /NOTES TO (?:CONSOLIDATED )?FINANCIAL STATEMENTS/gi;
-    const allCandidates = [];
-    let am;
-    while ((am = allRe.exec(text)) !== null) allCandidates.push(am.index);
-
-    if (allCandidates.length === 0) return Math.floor(text.length * 0.2);
-
-    const threshold = text.length * 0.85;
-    const filtered  = allCandidates.filter(idx => idx < threshold);
-    if (filtered.length > 0) {
-      // Take FIRST candidate after TOC (not last — avoids "(Continued)" pages)
-      const tocThreshold = text.length * 0.05;
-      const afterToc = filtered.filter(idx => idx > tocThreshold);
-      if (afterToc.length > 0) return afterToc[0];
-      return filtered[0];
+    if (lastIdx > 0 && lastIdx < text.length * 0.9) {
+      console.log("[DEBUG] findNotesStart: found equity statement footer at char " + lastIdx);
+      return lastIdx;
     }
 
-    if (allCandidates.length > 1) return allCandidates[allCandidates.length - 2];
-    return allCandidates[0];
-  
+    // Fallback: skip first 15% (audit opinion + financial statements area)
+    const fallback = Math.floor(text.length * 0.15);
+    console.log("[DEBUG] findNotesStart: using fallback at char " + fallback);
+    return fallback;
   }
 
   // ── Build note index from full notes text ──────────────────────────────────
@@ -277,30 +261,26 @@ for (const re of [re1, re2, re4]) {
       .replace(/{year}/g, year || "")
       .replace(/{note}/g, targetNote);
 
-    // Send the notes section of Item 8 — from where notes start to end of filing.
-    // Claude reads the actual text and finds the answer wherever it lives.
-    // No note detection, no regex, no chunking — just the filing and a question.
-    const notesText = item8Text.slice(notesStartIdx);
-
-    // Hard cap at 80,000 chars (~20,000 tokens) to stay under rate limits.
-    // Once on Anthropic Tier 2 this cap can be removed entirely.
-    const textToSend = notesText.slice(0, 80000);
+    // Send the full Item 8 text. Claude reads everything and answers from the filing.
+    // No anchoring, no chunking, no note detection.
+    // Cap at 100,000 chars — covers the full filing for most companies.
+    const textToSend = item8Text.slice(0, 100000);
 
     console.log("[DEBUG] " + companyName + " sending " + textToSend.length +
       " chars (~" + Math.round(textToSend.length / 4) + " tokens) for: " + targetNote);
 
     const prompt =
-      "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K annual report.\n\n" +
-      "Answer this question by reading the filing text below:\n" +
+      "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K annual report (Item 8: Financial Statements and Notes).\n\n" +
+      "Answer this question:\n" +
       question + "\n\n" +
-      "Filing text (Notes to Financial Statements):\n" +
+      "Full filing text (Item 8):\n" +
       textToSend + "\n\n" +
-      "Instructions:\n" +
-      "- Read the entire filing text above and find all relevant disclosures\n" +
-      "- Include ALL specific dollar amounts, dates, company names, and terms you find\n" +
-      "- Do not say 'see Note X' — extract the actual information from the text above\n" +
-      "- If a topic appears in multiple notes, combine all relevant information\n" +
-      "- Provide a complete, detailed answer with every key fact and figure.";
+      "CRITICAL GUARDRAILS:\n" +
+      "- Every single fact, figure, date, and dollar amount in your answer MUST appear verbatim in the filing text above\n" +
+      "- If you cannot find specific information in the text above, say explicitly: 'Not disclosed in this filing'\n" +
+      "- Do NOT use your training knowledge to fill in gaps — only use what is in the text above\n" +
+      "- Do NOT say 'see Note X' — extract the actual content from the text provided\n" +
+      "- If information appears in multiple places in the filing, combine it into a complete answer";
 
     try {
       const result = await callClaude(prompt, 2500);
