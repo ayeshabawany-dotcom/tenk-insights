@@ -1,4 +1,4 @@
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -294,11 +294,10 @@ export default async function handler(req, res) {
       const startA = findNotesStart(item8A);
       const startB = findNotesStart(item8B);
 
-      // Sequential with a gap to avoid rate-limiting on large filings (Meta, MSFT, etc.)
+      // Sequential — small gap between calls to reduce 429 risk on large filings
       const extractedA = await findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA);
-      await new Promise(r => setTimeout(r, 3000));
+      await new Promise(r => setTimeout(r, 2000));
       const extractedB = await findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB);
-      await new Promise(r => setTimeout(r, 3000));
 
       const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
       const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
