@@ -222,6 +222,20 @@ export default async function handler(req, res) {
       "What were {company}'s basic and diluted EPS for FY{year}? Include weighted average shares, dilutive securities, and any antidilutive items excluded.",
     "Summary of Significant Accounting Policies":
       "What are {company}'s most important accounting policies as of FY{year}? Focus on revenue recognition, consolidation, significant estimates, policy changes, and unusual policies.",
+    "Revenue Recognition":
+      "How does {company} recognize revenue in FY{year}? Include performance obligations, transaction price allocation, timing of recognition, contract assets and liabilities, disaggregation of revenue by type or geography, and any significant judgments.",
+    "Fair Value Measurements":
+      "What does {company} disclose about fair value measurements in FY{year}? Include the Level 1, 2, and 3 hierarchy breakdown, assets and liabilities measured at fair value, valuation techniques, and any transfers between levels.",
+    "Segment Information":
+      "What operating segments does {company} report in FY{year}? For each segment provide: revenue, operating income or loss, total assets, and any reconciling items to consolidated totals. Include the basis of segmentation.",
+    "Related Party Transactions":
+      "What related party transactions does {company} disclose in FY{year}? Include the nature of the relationship, transaction amounts, balances outstanding, and terms of any agreements.",
+    "Restructuring Charges":
+      "What restructuring charges did {company} record in FY{year}? Include the program name or description, total charges by type (severance, facilities, etc.), cash vs non-cash components, amounts paid, and remaining liability.",
+    "Pension & Post-Retirement Benefits":
+      "What pension and post-retirement benefit obligations does {company} carry in FY{year}? Include projected benefit obligation, plan assets, funded status, net periodic benefit cost, key actuarial assumptions, and expected future contributions.",
+    "Derivative Instruments & Hedging":
+      "What derivative instruments and hedging activities does {company} disclose in FY{year}? Include hedge types (cash flow, fair value, net investment), notional amounts, fair values, gains and losses recognized, and risk management objectives.",
   };
 
   // ── Extract note section via Claude ───────────────────────────────────────
