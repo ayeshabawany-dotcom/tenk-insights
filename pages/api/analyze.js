@@ -304,8 +304,7 @@ for (const re of [re1, re2, re4]) {
     // ── Pass 2: Find note END — next NOTE header after this one ───────────────
     // This isolates just the target note, not the entire rest of the filing
     const textFromNote = item8Text.slice(noteStart);
-    const nextNoteRe   = /
-\s*NOTE\s+\d+[.\s]/i;
+    const nextNoteRe   = /\n\s*NOTE\s+\d+[.\s]/i;
     const nextNoteMatch = nextNoteRe.exec(textFromNote.slice(200)); // skip first 200 chars to avoid re-matching same header
 
     let noteText;
