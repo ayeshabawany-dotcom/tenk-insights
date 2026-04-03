@@ -227,26 +227,7 @@ for (const re of [re1, re2, re4]) {
   // ── Find and extract the relevant note section ─────────────────────────────
   // Plain-English question map — each dropdown item maps to a specific question
   // Claude answers from the full filing text rather than hunting for a specific note
-  const NOTE_QUESTIONS = {
-    "Business Combinations & Acquisitions":
-      "What companies did {company} acquire during FY{year}? For each acquisition provide: target company name, acquisition date, total purchase price (cash and stock components), goodwill recognized, identifiable intangibles acquired, contingent consideration or earnout provisions, and how the acquisition was accounted for. NOTE: ignore any note about the company's own SPAC or reverse merger going-public transaction — that is not an acquisition.",
-    "Goodwill & Intangible Assets":
-      "What is {company}'s goodwill balance as of FY{year} year-end, how did it change during the year, what are the reporting units, was any impairment recorded, and what intangible assets are on the balance sheet with their carrying values and amortization periods?",
-    "Long-term Debt & Credit Facilities":
-      "What debt does {company} carry as of FY{year}? For each facility: type, outstanding balance, interest rate, maturity date, key covenants, and any significant changes during the year.",
-    "Share-Based Compensation":
-      "What stock-based compensation did {company} recognize in FY{year}? Include total expense by function (R&D, G&A, sales), types of awards (options, RSUs, PSUs), key assumptions, unrecognized compensation cost, and any modifications.",
-    "Income Taxes":
-      "What was {company}'s income tax provision in FY{year}? Include effective tax rate, current vs deferred components, major rate reconciliation items, deferred tax assets and liabilities, valuation allowances, and unrecognized tax benefits.",
-    "Leases (ASC 842)":
-      "What lease obligations does {company} carry under ASC 842 as of FY{year}? Include operating and finance lease ROU assets, lease liabilities, weighted average terms and discount rates, and future payment schedule.",
-    "Commitments & Contingencies":
-      "What material commitments and contingencies does {company} disclose as of FY{year}? Include legal proceedings, purchase obligations, guarantees, and how management has assessed them.",
-    "Earnings Per Share":
-      "What were {company}'s basic and diluted EPS for FY{year}? Show weighted average shares, dilutive securities, and any items affecting per share figures.",
-    "Summary of Significant Accounting Policies":
-      "What are {company}'s most important accounting policies as of FY{year}? Focus on revenue recognition, basis of consolidation, significant estimates, any policy changes, and policies that differ from common industry practice.",
-  };
+
 
   const NOTE_QUESTIONS = {
     "Business Combinations & Acquisitions":
