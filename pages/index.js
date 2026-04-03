@@ -125,8 +125,24 @@ export default function Home() {
   const [qaPhase, setQaPhase]   = useState("idle");
   const [qaHistory, setQaHistory] = useState([]);
 
+  // Usage tracking — free tier allows 5 comparisons
+  const FREE_LIMIT = 5;
+  const [usageCount, setUsageCount] = React.useState(() => {
+    if (typeof window === "undefined") return 0;
+    return parseInt(localStorage.getItem("tenk_usage") || "0", 10);
+  });
+  const [showPaywall, setShowPaywall] = useState(false);
+  const isPro = typeof window !== "undefined" && localStorage.getItem("tenk_pro") === "true";
+  const remaining = Math.max(0, FREE_LIMIT - usageCount);
+
   async function compare() {
     if (!companyA.trim() || !companyB.trim() || !note) return;
+    // Check free tier limit
+    const currentUsage = parseInt(localStorage.getItem("tenk_usage") || "0", 10);
+    if (!isPro && currentUsage >= FREE_LIMIT) {
+      setShowPaywall(true);
+      return;
+    }
     setPhase("loading"); setErrMsg(""); setResult(null);
     setSentiment(null); setSentPhase("idle"); setQaHistory([]); setQaOpen(false);
     try {
@@ -139,6 +155,9 @@ export default function Home() {
       if (!resp.ok) throw new Error(data.error || "Comparison failed");
       setResult(data);
       setPhase("done");
+      const newCount = parseInt(localStorage.getItem("tenk_usage") || "0", 10) + 1;
+      localStorage.setItem("tenk_usage", newCount.toString());
+      setUsageCount(newCount);
     } catch (e) {
       setErrMsg(e.message);
       setPhase("error");
@@ -302,7 +321,23 @@ export default function Home() {
             <div className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: GREEN, boxShadow: "0 0 6px #059669" }} />
             <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>LIVE</span>
           </div>
-        </div>
+        
+          {/* Usage counter */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6,
+            background: remaining <= 1 ? "rgba(239,68,68,.08)" : "rgba(0,0,0,.03)",
+            border: `1.5px solid ${remaining <= 1 ? "rgba(239,68,68,.25)" : "#e5e7eb"}`,
+            borderRadius: 7, padding: "5px 12px",
+            cursor: remaining === 0 ? "pointer" : "default" }}
+            onClick={() => remaining === 0 && setShowPaywall(true)}>
+            <span style={{ fontSize: 11, fontWeight: 600,
+              color: remaining <= 1 ? "#ef4444" : "#9ca3af" }}>
+              {isPro ? "✦ Pro" : remaining === 0 ? "⚠ Limit reached" : `${remaining} free left`}
+            </span>
+            {!isPro && remaining === 0 && (
+              <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 700, marginLeft: 4 }}>· Upgrade →</span>
+            )}
+          </div>
+</div>
       </header>
 
       {/* ── HERO ───────────────────────────────────────────────────────────── */}
@@ -354,6 +389,78 @@ export default function Home() {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PAYWALL MODAL ─────────────────────────────────────────── */}
+      {showPaywall && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(0,0,0,.6)", backdropFilter: "blur(8px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24 }}
+          onClick={(e) => e.target === e.currentTarget && setShowPaywall(false)}>
+          <div style={{ background: "#ffffff", borderRadius: 20, padding: "40px 36px",
+            maxWidth: 440, width: "100%", boxShadow: "0 32px 80px rgba(0,0,0,.25)",
+            position: "relative", textAlign: "center" }}>
+
+            {/* Close button */}
+            <button onClick={() => setShowPaywall(false)}
+              style={{ position: "absolute", top: 16, right: 16, background: "#f3f4f6",
+                border: "none", borderRadius: 7, width: 28, height: 28, cursor: "pointer",
+                fontSize: 14, color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+
+            {/* Icon */}
+            <div style={{ fontSize: 40, marginBottom: 16 }}>📊</div>
+
+            {/* Headline */}
+            <div style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 24,
+              fontWeight: 700, color: "#111827", marginBottom: 8, letterSpacing: "-.5px" }}>
+              You've used your 5 free comparisons
+            </div>
+            <p style={{ fontSize: 15, color: "#6b7280", lineHeight: 1.7, marginBottom: 28 }}>
+              Upgrade to Pro for unlimited comparisons, full Q&A, sentiment scoring, and CSV exports.
+            </p>
+
+            {/* Pricing */}
+            <div style={{ background: "linear-gradient(135deg, #fffbeb, #fef3c7)",
+              border: "2px solid #f59e0b", borderRadius: 14, padding: "20px 24px",
+              marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: "#92400e", fontWeight: 700,
+                textTransform: "uppercase", letterSpacing: "1px", marginBottom: 8 }}>Pro Plan</div>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4 }}>
+                <span style={{ fontFamily: "'Libre Baskerville', serif", fontSize: 42,
+                  fontWeight: 700, color: "#111827" }}>$7</span>
+                <span style={{ fontSize: 14, color: "#6b7280" }}>/month</span>
+              </div>
+              <div style={{ fontSize: 13, color: "#78716c", marginTop: 6 }}>
+                Unlimited comparisons · All 9 note sections · CSV export · Q&A
+              </div>
+            </div>
+
+            {/* CTA */}
+            <button className="btn" style={{ width: "100%",
+              background: "linear-gradient(135deg, #f59e0b, #d97706)",
+              color: "#111827", borderRadius: 12, padding: "14px 0",
+              fontSize: 16, fontWeight: 800, marginBottom: 12,
+              boxShadow: "0 4px 20px rgba(245,158,11,.3)" }}
+              onClick={() => {
+                // Placeholder — replace with Stripe link
+                alert("Stripe integration coming soon! Email ayesha@tenk-insights.com to get Pro access.");
+              }}>
+              Upgrade to Pro →
+            </button>
+
+            <button className="btn" style={{ width: "100%", background: "transparent",
+              border: "1.5px solid #e5e7eb", color: "#9ca3af", borderRadius: 10,
+              padding: "10px 0", fontSize: 13 }}
+              onClick={() => setShowPaywall(false)}>
+              Maybe later
+            </button>
+
+            <p style={{ fontSize: 11, color: "#d1d5db", marginTop: 16 }}>
+              Cancel anytime · Secure payment via Stripe
+            </p>
           </div>
         </div>
       )}
