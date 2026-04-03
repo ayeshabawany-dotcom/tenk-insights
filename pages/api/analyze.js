@@ -278,8 +278,9 @@ for (const re of [re1, re2, re4]) {
 
     const keywords = NOTE_KEYWORDS[targetNote] || [targetNote.toUpperCase().split(" ")[0]];
 
-    // Find the note header in the full Item 8 text
-    let foundAt = -1;
+    // ── Pass 1: Find note START using regex (no LLM, no tokens) ──────────────
+    let noteStart = -1;
+    let matchedKeyword = "";
     for (const kw of keywords) {
       const patterns = [
         new RegExp("NOTE\s+\d+[.\s]+" + kw, "i"),
@@ -289,33 +290,50 @@ for (const re of [re1, re2, re4]) {
       for (const pat of patterns) {
         const m = pat.exec(item8Text);
         if (m && m.index > 1000) {
-          foundAt = m.index;
-          console.log("[DEBUG] " + companyName + " found '" + kw + "' at char " + foundAt);
+          noteStart = m.index;
+          matchedKeyword = kw;
           break;
         }
       }
-      if (foundAt > -1) break;
+      if (noteStart > -1) break;
     }
 
-    const chunkStart = foundAt > -1 ? foundAt : notesStartIdx;
+    if (noteStart === -1) noteStart = notesStartIdx;
+    console.log("[DEBUG] " + companyName + " note start: " + noteStart + " (keyword: " + matchedKeyword + ")");
 
-    // Send everything from the note header to the end of Item 8
-    // Let Claude read the full content — no artificial size limit
-    const fullChunk = item8Text.slice(chunkStart);
-    console.log("[DEBUG] " + companyName + " sending " + fullChunk.length + " chars from char " + chunkStart);
+    // ── Pass 2: Find note END — next NOTE header after this one ───────────────
+    // This isolates just the target note, not the entire rest of the filing
+    const textFromNote = item8Text.slice(noteStart);
+    const nextNoteRe   = /
+\s*NOTE\s+\d+[.\s]/i;
+    const nextNoteMatch = nextNoteRe.exec(textFromNote.slice(200)); // skip first 200 chars to avoid re-matching same header
 
-    const prompt = "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K.\n\nAnswer this question from the filing text below:\n" + question + "\n\nFiling text:\n" + fullChunk + "\n\nInstructions:\n- Answer ONLY from the text above\n- Include ALL specific dollar amounts, dates, company names, and terms\n- Do not say 'see Note X' — extract the actual information from the text provided\n- Provide a complete, detailed answer with all key facts and figures.";
+    let noteText;
+    if (nextNoteMatch && nextNoteMatch.index < 60000) {
+      // Found next note — extract just this note
+      noteText = textFromNote.slice(0, 200 + nextNoteMatch.index);
+      console.log("[DEBUG] " + companyName + " note isolated: " + noteText.length + " chars (ends before next note)");
+    } else {
+      // No next note found nearby — cap at 25000 chars
+      noteText = textFromNote.slice(0, 25000);
+      console.log("[DEBUG] " + companyName + " note capped at 25000 chars");
+    }
+
+    // ── Pass 3: Send just the note text to Claude ─────────────────────────────
+    // noteText is typically 3,000-15,000 chars = ~1,000-4,000 tokens. Well within limits.
+    const prompt = "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K.\n\nAnswer this question from the note text below:\n" + question + "\n\nNote text:\n" + noteText + "\n\nInstructions:\n- Answer ONLY from the text above\n- Include ALL specific dollar amounts, dates, company names, and terms\n- Do not say 'see Note X' — the text above is the note, extract from it directly\n- Provide a complete, detailed answer.";
+
+    console.log("[DEBUG] " + companyName + " sending " + noteText.length + " chars to Claude (~" + Math.round(noteText.length/4) + " tokens)");
 
     try {
-      const result = await callClaude(prompt, 3000);
-      console.log("[DEBUG] " + companyName + " extraction complete, response length: " + result.length);
+      const result = await callClaude(prompt, 2000);
+      console.log("[DEBUG] " + companyName + " extraction done, response: " + result.length + " chars");
       return { text: result.trim(), resolvedTitle: targetNote };
     } catch(e) {
-      console.log("[DEBUG] " + companyName + " error: " + e.message);
+      console.log("[DEBUG] " + companyName + " extraction error: " + e.message);
       return { text: null, resolvedTitle: targetNote };
     }
   }
-
 
   // ── Helper: call Claude Haiku ───────────────────────────────────────────────
   async function callClaude(prompt, maxTokens = 1000) {
