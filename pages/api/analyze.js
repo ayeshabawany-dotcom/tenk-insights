@@ -271,65 +271,43 @@ for (const re of [re1, re2, re4]) {
   };
 
   async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName, year) {
-    const question = (NOTE_QUESTIONS[targetNote] || "What does {company} disclose about {note} in FY{year}?")
+    const question = (NOTE_QUESTIONS[targetNote] ||
+      "What does {company} disclose about {note} in FY{year}?")
       .replace(/{company}/g, companyName)
       .replace(/{year}/g, year || "")
       .replace(/{note}/g, targetNote);
 
-    const keywords = NOTE_KEYWORDS[targetNote] || [targetNote.toUpperCase().split(" ")[0]];
+    // Send the notes section of Item 8 — from where notes start to end of filing.
+    // Claude reads the actual text and finds the answer wherever it lives.
+    // No note detection, no regex, no chunking — just the filing and a question.
+    const notesText = item8Text.slice(notesStartIdx);
 
-    // ── Pass 1: Find note START using regex (no LLM, no tokens) ──────────────
-    let noteStart = -1;
-    let matchedKeyword = "";
-    for (const kw of keywords) {
-      const patterns = [
-        new RegExp("NOTE\s+\d+[.\s]+" + kw, "i"),
-        new RegExp("\n\s*\d+[.]\s+" + kw, "i"),
-        new RegExp("\n" + kw + "\s*\n", "i"),
-      ];
-      for (const pat of patterns) {
-        const m = pat.exec(item8Text);
-        if (m && m.index > 1000) {
-          noteStart = m.index;
-          matchedKeyword = kw;
-          break;
-        }
-      }
-      if (noteStart > -1) break;
-    }
+    // Hard cap at 80,000 chars (~20,000 tokens) to stay under rate limits.
+    // Once on Anthropic Tier 2 this cap can be removed entirely.
+    const textToSend = notesText.slice(0, 80000);
 
-    if (noteStart === -1) noteStart = notesStartIdx;
-    console.log("[DEBUG] " + companyName + " note start: " + noteStart + " (keyword: " + matchedKeyword + ")");
+    console.log("[DEBUG] " + companyName + " sending " + textToSend.length +
+      " chars (~" + Math.round(textToSend.length / 4) + " tokens) for: " + targetNote);
 
-    // ── Pass 2: Find note END — next NOTE header after this one ───────────────
-    // This isolates just the target note, not the entire rest of the filing
-    const textFromNote = item8Text.slice(noteStart);
-    const nextNoteRe   = /\n\s*NOTE\s+\d+[.\s]/i;
-    const nextNoteMatch = nextNoteRe.exec(textFromNote.slice(200)); // skip first 200 chars to avoid re-matching same header
-
-    let noteText;
-    if (nextNoteMatch && nextNoteMatch.index < 60000) {
-      // Found next note — extract just this note
-      noteText = textFromNote.slice(0, 200 + nextNoteMatch.index);
-      console.log("[DEBUG] " + companyName + " note isolated: " + noteText.length + " chars (ends before next note)");
-    } else {
-      // No next note found nearby — cap at 25000 chars
-      noteText = textFromNote.slice(0, 25000);
-      console.log("[DEBUG] " + companyName + " note capped at 25000 chars");
-    }
-
-    // ── Pass 3: Send just the note text to Claude ─────────────────────────────
-    // noteText is typically 3,000-15,000 chars = ~1,000-4,000 tokens. Well within limits.
-    const prompt = "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K.\n\nAnswer this question from the note text below:\n" + question + "\n\nNote text:\n" + noteText + "\n\nInstructions:\n- Answer ONLY from the text above\n- Include ALL specific dollar amounts, dates, company names, and terms\n- Do not say 'see Note X' — the text above is the note, extract from it directly\n- Provide a complete, detailed answer.";
-
-    console.log("[DEBUG] " + companyName + " sending " + noteText.length + " chars to Claude (~" + Math.round(noteText.length/4) + " tokens)");
+    const prompt =
+      "You are a technical accountant reading " + companyName + "'s FY" + (year || "") + " 10-K annual report.\n\n" +
+      "Answer this question by reading the filing text below:\n" +
+      question + "\n\n" +
+      "Filing text (Notes to Financial Statements):\n" +
+      textToSend + "\n\n" +
+      "Instructions:\n" +
+      "- Read the entire filing text above and find all relevant disclosures\n" +
+      "- Include ALL specific dollar amounts, dates, company names, and terms you find\n" +
+      "- Do not say 'see Note X' — extract the actual information from the text above\n" +
+      "- If a topic appears in multiple notes, combine all relevant information\n" +
+      "- Provide a complete, detailed answer with every key fact and figure.";
 
     try {
-      const result = await callClaude(prompt, 2000);
-      console.log("[DEBUG] " + companyName + " extraction done, response: " + result.length + " chars");
+      const result = await callClaude(prompt, 2500);
+      console.log("[DEBUG] " + companyName + " done, response: " + result.length + " chars");
       return { text: result.trim(), resolvedTitle: targetNote };
-    } catch(e) {
-      console.log("[DEBUG] " + companyName + " extraction error: " + e.message);
+    } catch (e) {
+      console.log("[DEBUG] " + companyName + " error: " + e.message);
       return { text: null, resolvedTitle: targetNote };
     }
   }
