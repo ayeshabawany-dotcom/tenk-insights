@@ -10,7 +10,7 @@ export default async function handler(req, res) {
 
   const { action, companyA, yearA, companyB, yearB, noteSection, tableData, question } = req.body;
 
-  // ── Claude helper ──────────────────────────────────────────────────────────
+  // ── Claude helper (with retry on 429) ─────────────────────────────────────
   async function callClaude(prompt, maxTokens, retries = 2) {
     for (let attempt = 0; attempt <= retries; attempt++) {
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -31,8 +31,8 @@ export default async function handler(req, res) {
         return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
       }
       if (resp.status === 429 && attempt < retries) {
-        console.log(`[DEBUG] Rate limited (429), waiting 4s before retry ${attempt + 1}`);
-        await new Promise(r => setTimeout(r, 4000));
+        console.log(`[DEBUG] Rate limited (429), waiting 8s before retry ${attempt + 1}`);
+        await new Promise(r => setTimeout(r, 8000));
         continue;
       }
       const err = await resp.json().catch(() => ({}));
@@ -40,6 +40,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── JSON extractor ─────────────────────────────────────────────────────────
   function extractJSON(text) {
     const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
     const start = cleaned.indexOf("{");
@@ -95,9 +96,8 @@ export default async function handler(req, res) {
     throw new Error(`Could not find 10-K for "${company}" FY${year}. ${lastError || ""}`);
   }
 
-  // ── HTML → structured text (preserves tables) ──────────────────────────────
+  // ── HTML → structured text ─────────────────────────────────────────────────
   async function fetchItem8(filingUrl) {
-    // Use type=text — clean, reliable, no HTML parsing fragility
     const extractUrl = `https://api.sec-api.io/extractor?url=${encodeURIComponent(filingUrl)}&item=8&type=text&token=${secApiKey}`;
     const resp = await fetch(extractUrl);
     if (resp.ok) {
@@ -109,8 +109,6 @@ export default async function handler(req, res) {
       console.log(`[DEBUG] Item 8 too short (${text.length} chars), fetching full filing`);
     }
 
-    // Fallback: full filing HTML → strip to plain text
-    // Used when Item 8 is a stub (e.g. financials filed as separate exhibit)
     console.log(`[DEBUG] Fetching full filing from: ${filingUrl}`);
     const fullResp = await fetch(filingUrl, {
       headers: { "User-Agent": "10KCompare research@10kcompare.app" },
@@ -125,7 +123,7 @@ export default async function handler(req, res) {
       .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
       .replace(/&#\d+;/g, " ")
-      .replace(/[ 	]{3,}/g, " ")
+      .replace(/[ \t]{3,}/g, " ")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
     if (!plain || plain.length < 1000) throw new Error("Could not extract filing text.");
@@ -133,13 +131,8 @@ export default async function handler(req, res) {
     return plain;
   }
 
-  // ── Find where notes start in Item 8 (skip auditor report) ────────────────
+  // ── Find where notes start in Item 8 ──────────────────────────────────────
   function findNotesStart(text) {
-    // Most reliable anchor: "See accompanying notes" appears as a footer
-    // on EVERY financial statement page (balance sheet, income, cash flows, equity).
-    // The LAST occurrence marks the end of the equity statement — right before Note 1.
-    // This works across all company formats and never appears as a pagination artifact.
-
     const markers = [
       /see accompanying notes to (?:consolidated )?financial statements/gi,
       /the accompanying notes are an integral part/gi,
@@ -160,24 +153,20 @@ export default async function handler(req, res) {
       return lastIdx;
     }
 
-    // Fallback: skip first 15% (audit opinion + financial statements area)
     const fallback = Math.floor(text.length * 0.15);
     console.log("[DEBUG] findNotesStart: using fallback at char " + fallback);
     return fallback;
   }
 
-  // ── Build note index from full notes text ──────────────────────────────────
+  // ── Build note index ───────────────────────────────────────────────────────
   function buildNoteIndex(text) {
     const notes = [];
 
-    // Pattern 1: "NOTE 1 —" / "Note 2." with explicit NOTE keyword
     const re1 = /(?:^|\n)\s{0,6}(?:NOTE\s+|Note\s+)(\d{1,2})[.\s\-]+([A-Z][^\n]{4,80})/gm;
-    // Pattern 2: "1. TITLE" at line start
     const re2 = /(?:^|\n)\s{0,4}(\d{1,2})\.\s+([A-Z][A-Z\s]{4,60})\n/gm;
-    // Pattern 4: Microsoft-style "19 SEGMENT INFORMATION" — number space ALL-CAPS title
     const re4 = /(?:^|\n)\s{0,4}(\d{1,2})\s+([A-Z]{2,}(?:\s+[A-Z]{2,}){0,8})(?=\s+[A-Z][a-z]|\s*\n)/gm;
 
-for (const re of [re1, re2, re4]) {
+    for (const re of [re1, re2, re4]) {
       let m;
       while ((m = re.exec(text)) !== null) {
         const num   = parseInt(m[1]);
@@ -188,7 +177,6 @@ for (const re of [re1, re2, re4]) {
       }
     }
 
-    // Pattern 3: Apple-style — find known section titles as uppercase headings
     if (notes.length < 3) {
       const keywords = [
         "REVENUE RECOGNITION", "SEGMENT INFORMATION", "INCOME TAXES",
@@ -208,18 +196,13 @@ for (const re of [re1, re2, re4]) {
       }
     }
 
-    // Deduplicate by note number, sort by position
     const seen = new Set();
     return notes
       .sort((a, b) => a.startIdx - b.startIdx)
       .filter(n => { if (seen.has(n.num)) return false; seen.add(n.num); return true; });
   }
 
-  // ── Find and extract the relevant note section ─────────────────────────────
-  // Plain-English question map — each dropdown item maps to a specific question
-  // Claude answers from the full filing text rather than hunting for a specific note
-
-
+  // ── Note question map ──────────────────────────────────────────────────────
   const NOTE_QUESTIONS = {
     "Business Combinations & Acquisitions":
       "What companies did {company} acquire during FY{year}? For each acquisition provide: target company name, acquisition date, total purchase price (cash and stock), goodwill recognized, identifiable intangibles, contingent consideration or earnouts. NOTE: ignore any note about the company going public via SPAC or reverse merger — that is not an acquisition of another company.",
@@ -241,19 +224,7 @@ for (const re of [re1, re2, re4]) {
       "What are {company}'s most important accounting policies as of FY{year}? Focus on revenue recognition, consolidation, significant estimates, policy changes, and unusual policies.",
   };
 
-  // Keywords to search for in the full Item 8 text for each note section
-  const NOTE_KEYWORDS = {
-    "Business Combinations & Acquisitions": ["BUSINESS COMBINATIONS", "ACQUISITIONS", "BUSINESS ACQUISITION"],
-    "Goodwill & Intangible Assets":         ["GOODWILL AND INTANGIBLE", "GOODWILL"],
-    "Long-term Debt & Credit Facilities":   ["DEBT", "CREDIT FACILITY", "BORROWINGS"],
-    "Share-Based Compensation":             ["STOCK-BASED COMPENSATION", "SHARE-BASED COMPENSATION", "EQUITY INCENTIVE"],
-    "Income Taxes":                         ["INCOME TAX", "INCOME TAXES"],
-    "Leases (ASC 842)":                     ["LEASES", "LEASE"],
-    "Commitments & Contingencies":          ["COMMITMENTS AND CONTINGENCIES", "COMMITMENTS"],
-    "Earnings Per Share":                   ["EARNINGS PER SHARE", "NET LOSS PER SHARE"],
-    "Summary of Significant Accounting Policies": ["ACCOUNTING POLICIES", "SIGNIFICANT ACCOUNTING"],
-  };
-
+  // ── Extract note section via Claude ───────────────────────────────────────
   async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName, year) {
     const question = (NOTE_QUESTIONS[targetNote] ||
       "What does {company} disclose about {note} in FY{year}?")
@@ -261,9 +232,6 @@ for (const re of [re1, re2, re4]) {
       .replace(/{year}/g, year || "")
       .replace(/{note}/g, targetNote);
 
-    // Send the full Item 8 text. Claude reads everything and answers from the filing.
-    // No anchoring, no chunking, no note detection.
-    // Cap at 100,000 chars — covers the full filing for most companies.
     const textToSend = item8Text.slice(0, 100000);
 
     console.log("[DEBUG] " + companyName + " sending " + textToSend.length +
@@ -292,66 +260,36 @@ for (const re of [re1, re2, re4]) {
     }
   }
 
-  // ── Helper: call Claude Haiku ───────────────────────────────────────────────
-  async function callClaude(prompt, maxTokens = 1000) {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: maxTokens,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!resp.ok) throw new Error(`Anthropic API error: ${resp.status}`);
-    const data = await resp.json();
-    return data.content?.[0]?.text || "";
-  }
-
-  function extractJSON(text) {
-    try {
-      const clean = text.replace(/```json\n?|```/g, "").trim();
-      const start = clean.indexOf("{");
-      const end   = clean.lastIndexOf("}");
-      if (start === -1 || end === -1) throw new Error("No JSON found");
-      return JSON.parse(clean.slice(start, end + 1));
-    } catch { return {}; }
-  }
-
-  // ── ACTIONS ──────────────────────────────────────────────────────────────────
-
+  // ── ACTIONS ────────────────────────────────────────────────────────────────
   try {
 
-  if (action === "compare") {
-    // companyA, yearA, companyB, yearB, noteSection already destructured from req.body above
-    if (!companyA || !companyB || !noteSection)
-      return res.status(400).json({ error: "Missing required fields." });
+    if (action === "compare") {
+      if (!companyA || !companyB || !noteSection)
+        return res.status(400).json({ error: "Missing required fields." });
 
-    const [filingA, filingB] = await Promise.all([
-      findFiling(companyA, yearA),
-      findFiling(companyB, yearB),
-    ]);
+      const [filingA, filingB] = await Promise.all([
+        findFiling(companyA, yearA),
+        findFiling(companyB, yearB),
+      ]);
 
-    const [item8A, item8B] = await Promise.all([
-      fetchItem8(filingA.url),
-      fetchItem8(filingB.url),
-    ]);
+      const [item8A, item8B] = await Promise.all([
+        fetchItem8(filingA.url),
+        fetchItem8(filingB.url),
+      ]);
 
-    const startA = findNotesStart(item8A);
-    const startB = findNotesStart(item8B);
+      const startA = findNotesStart(item8A);
+      const startB = findNotesStart(item8B);
 
-    // Run sequentially to avoid rate limits (full filing text = large token count)
-    const extractedA = await findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA);
-    const extractedB = await findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB);
+      // Sequential with a gap to avoid rate-limiting on large filings (Meta, MSFT, etc.)
+      const extractedA = await findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA);
+      await new Promise(r => setTimeout(r, 3000));
+      const extractedB = await findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB);
+      await new Promise(r => setTimeout(r, 3000));
 
-    const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
-    const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
+      const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
+      const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
 
-    const comparePrompt = `You are a senior technical accountant comparing two SEC 10-K filings.
+      const comparePrompt = `You are a senior technical accountant comparing two SEC 10-K filings.
 
 Company A: ${filingA.companyName} (FY${yearA})
 Company B: ${filingB.companyName} (FY${yearB})
@@ -373,64 +311,63 @@ Respond with ONLY valid JSON:
   "keyInsight": "Single most important difference"
 }`;
 
-    const parsed = extractJSON(await callClaude(comparePrompt, 2000));
-    if (!parsed.rows || parsed.rows.length === 0)
-      return res.status(500).json({ error: "Could not parse comparison. Please try again." });
+      const parsed = extractJSON(await callClaude(comparePrompt, 2000));
+      if (!parsed.rows || parsed.rows.length === 0)
+        return res.status(500).json({ error: "Could not parse comparison. Please try again." });
 
-    parsed.meta = { companyA: filingA.companyName, companyB: filingB.companyName, yearA, yearB, note: noteSection };
-    parsed.sourceA = filingA.url;
-    parsed.sourceB = filingB.url;
-    parsed.sourceNote = `Section names auto-resolved — ${filingA.companyName}: "${extractedA.resolvedTitle}" · ${filingB.companyName}: "${extractedB.resolvedTitle}"`;
-    parsed.rawTextA = trimA.slice(0, 20000);
-    parsed.rawTextB = trimB.slice(0, 20000);
-    parsed.notesContextA = trimA.slice(0, 20000);
-    parsed.notesContextB = trimB.slice(0, 20000);
-    return res.status(200).json(parsed);
-  }
+      parsed.meta = { companyA: filingA.companyName, companyB: filingB.companyName, yearA, yearB, note: noteSection };
+      parsed.sourceA = filingA.url;
+      parsed.sourceB = filingB.url;
+      parsed.sourceNote = `Section names auto-resolved — ${filingA.companyName}: "${extractedA.resolvedTitle}" · ${filingB.companyName}: "${extractedB.resolvedTitle}"`;
+      parsed.rawTextA = trimA.slice(0, 20000);
+      parsed.rawTextB = trimB.slice(0, 20000);
+      parsed.notesContextA = trimA.slice(0, 20000);
+      parsed.notesContextB = trimB.slice(0, 20000);
+      return res.status(200).json(parsed);
+    }
 
-  if (action === "sentiment") {
-    // noteSection and tableData already destructured from req.body above
-    if (!tableData) return res.status(400).json({ error: "Missing data." });
-    const tableText = tableData.rows.map(r =>
-      `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
-    ).join("\n");
+    if (action === "sentiment") {
+      if (!tableData) return res.status(400).json({ error: "Missing data." });
+      const tableText = tableData.rows.map(r =>
+        `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
+      ).join("\n");
 
-    const sentParsed = extractJSON(await callClaude(
-      `Rate disclosure tone for each filing. Respond ONLY with valid JSON:
+      const sentParsed = extractJSON(await callClaude(
+        `Rate disclosure tone for each filing. Respond ONLY with valid JSON:
 {"overallA":"Positive|Neutral|Cautious|Negative","scoreA":7,"summaryA":"2 sentences","overallB":"Positive|Neutral|Cautious|Negative","scoreB":6,"summaryB":"2 sentences","comparison":"1 sentence","redflags":"any red flags or null"}
 
 ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${noteSection}
 ${tableText}`, 600));
-    return res.status(200).json({ sentiment: sentParsed });
-  }
-
-  if (action === "ask") {
-    if (!question || !tableData) return res.status(400).json({ error: "Missing question or data." });
-    const tableText = tableData.rows.map(r =>
-      `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
-    ).join("\n");
-
-    const rawA = tableData.notesContextA || tableData.rawTextA || "";
-    const rawB = tableData.notesContextB || tableData.rawTextB || "";
-
-    function extractRelevantContext(fullText, q) {
-      if (!fullText || fullText.length < 100) return "";
-      const keywords = q.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/)
-        .filter(w => w.length > 4 && !["give","what","show","tell","much","many","does","have","from","this","that","which","their","about"].includes(w));
-      let bestIdx = 0, bestScore = 0;
-      for (let i = 0; i < fullText.length - 500; i += 500) {
-        const score = keywords.filter(kw => fullText.slice(i, i+500).toLowerCase().includes(kw)).length;
-        if (score > bestScore) { bestScore = score; bestIdx = i; }
-      }
-      return fullText.slice(Math.max(0, bestIdx - 200), bestIdx + 4000);
+      return res.status(200).json({ sentiment: sentParsed });
     }
 
-    const contextA = extractRelevantContext(rawA, question);
-    const contextB = extractRelevantContext(rawB, question);
-    const hasContext = contextA.length > 50 || contextB.length > 50;
+    if (action === "ask") {
+      if (!question || !tableData) return res.status(400).json({ error: "Missing question or data." });
+      const tableText = tableData.rows.map(r =>
+        `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
+      ).join("\n");
 
-    const askResult = await callClaude(
-      `You are a senior financial analyst answering questions about SEC 10-K filings.
+      const rawA = tableData.notesContextA || tableData.rawTextA || "";
+      const rawB = tableData.notesContextB || tableData.rawTextB || "";
+
+      function extractRelevantContext(fullText, q) {
+        if (!fullText || fullText.length < 100) return "";
+        const keywords = q.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/)
+          .filter(w => w.length > 4 && !["give","what","show","tell","much","many","does","have","from","this","that","which","their","about"].includes(w));
+        let bestIdx = 0, bestScore = 0;
+        for (let i = 0; i < fullText.length - 500; i += 500) {
+          const score = keywords.filter(kw => fullText.slice(i, i+500).toLowerCase().includes(kw)).length;
+          if (score > bestScore) { bestScore = score; bestIdx = i; }
+        }
+        return fullText.slice(Math.max(0, bestIdx - 200), bestIdx + 4000);
+      }
+
+      const contextA = extractRelevantContext(rawA, question);
+      const contextB = extractRelevantContext(rawB, question);
+      const hasContext = contextA.length > 50 || contextB.length > 50;
+
+      const askResult = await callClaude(
+        `You are a senior financial analyst answering questions about SEC 10-K filings.
 
 ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${tableData.meta.note}
 
@@ -442,10 +379,10 @@ Question: ${question}
 Use markdown tables for structured data, bullet points for lists, **bold** for key figures.
 Answer from the filing data only. Be specific with dollar amounts, dates, and terms.`, 1500);
 
-    return res.status(200).json({ answer: askResult });
-  }
+      return res.status(200).json({ answer: askResult });
+    }
 
-  return res.status(400).json({ error: "Unknown action." });
+    return res.status(400).json({ error: "Unknown action." });
 
   } catch (err) {
     console.error("[ERROR] Unhandled exception:", err.message, err.stack);
