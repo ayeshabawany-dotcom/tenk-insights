@@ -13,6 +13,13 @@ const NOTE_SECTIONS = [
   "Commitments & Contingencies",
   "Earnings Per Share",
   "Summary of Significant Accounting Policies",
+  "Revenue Recognition",
+  "Fair Value Measurements",
+  "Segment Information",
+  "Related Party Transactions",
+  "Restructuring Charges",
+  "Pension & Post-Retirement Benefits",
+  "Derivative Instruments & Hedging",
 ];
 
 const EXAMPLE_PAIRS = [
