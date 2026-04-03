@@ -180,8 +180,10 @@ export default async function handler(req, res) {
     const re1 = /(?:^|\n)\s{0,6}(?:NOTE\s+|Note\s+)(\d{1,2})[.\s\-]+([A-Z][^\n]{4,80})/gm;
     // Pattern 2: "1. TITLE" at line start
     const re2 = /(?:^|\n)\s{0,4}(\d{1,2})\.\s+([A-Z][A-Z\s]{4,60})\n/gm;
+    // Pattern 4: Microsoft-style "19 SEGMENT INFORMATION" — number space ALL-CAPS title
+    const re4 = /(?:^|\n)\s{0,4}(\d{1,2})\s+([A-Z]{2,}(?:\s+[A-Z]{2,}){1,6})(?:\s|\n)/gm;
 
-    for (const re of [re1, re2]) {
+for (const re of [re1, re2, re4]) {
       let m;
       while ((m = re.exec(text)) !== null) {
         const num   = parseInt(m[1]);
