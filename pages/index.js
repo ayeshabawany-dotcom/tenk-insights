@@ -4,29 +4,21 @@ import Head from "next/head";
 const YEARS = Array.from({ length: 11 }, (_, i) => String(2024 - i));
 
 const NOTE_SECTIONS = [
-  "Revenue Recognition Policy (how revenue is recognized)",
-  "Revenue Breakdown by Product / Segment / Geography (actual figures)",
-  "Segment Information",
   "Business Combinations & Acquisitions",
   "Goodwill & Intangible Assets",
   "Long-term Debt & Credit Facilities",
   "Share-Based Compensation",
   "Income Taxes",
   "Leases (ASC 842)",
-  "Fair Value Measurements",
   "Commitments & Contingencies",
-  "Geographic Information",
-  "Related Party Transactions",
   "Earnings Per Share",
-  "Restructuring & Impairment",
-  "Subsequent Events",
   "Summary of Significant Accounting Policies",
 ];
 
 const EXAMPLE_PAIRS = [
-  { a: "Meta", ya: "2023", b: "Alphabet", yb: "2023", note: "Segment Information" },
   { a: "Mastercard", ya: "2024", b: "Mastercard", yb: "2019", note: "Business Combinations & Acquisitions" },
-  { a: "Apple", ya: "2023", b: "Microsoft", yb: "2023", note: "Revenue Recognition" },
+  { a: "SOUN", ya: "2024", b: "SYNA", yb: "2023", note: "Business Combinations & Acquisitions" },
+  { a: "Apple", ya: "2023", b: "Microsoft", yb: "2023", note: "Income Taxes" },
   { a: "SoundHound AI", ya: "2023", b: "SoundHound AI", yb: "2022", note: "Summary of Significant Accounting Policies" },
 ];
 
@@ -48,6 +40,60 @@ function exportCSV(rows, meta) {
   a.download = `${meta.companyA}_vs_${meta.companyB}_${meta.note}_${meta.yearA}_${meta.yearB}.csv`.replace(/\s+/g, "_");
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// Simple markdown renderer for Q&A responses
+function renderMarkdown(text) {
+  if (!text) return "";
+  const lines = text.split("\n");
+  const html = [];
+  let inTable = false;
+  let tableHeaders = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Table row
+    if (line.trim().startsWith("|")) {
+      const cells = line.split("|").map(c => c.trim()).filter(Boolean);
+      // Skip separator rows (---|---|)
+      if (cells.every(c => /^[-:]+$/.test(c))) continue;
+      if (!inTable) {
+        html.push('<div style="overflowX:auto;marginBottom:12px"><table style="width:100%;borderCollapse:collapse;fontSize:13px">');
+        tableHeaders = cells;
+        html.push('<thead><tr>' + cells.map(c =>
+          `<th style="padding:8px 12px;textAlign:left;borderBottom:1px solid rgba(255,255,255,.15);color:#94a3b8;fontWeight:700;fontSize:11px;textTransform:uppercase;letterSpacing:.8px;whiteSpace:nowrap">${c}</th>`
+        ).join('') + '</tr></thead><tbody>');
+        inTable = true;
+        continue;
+      }
+      html.push('<tr>' + cells.map(c =>
+        `<td style="padding:8px 12px;borderBottom:1px solid rgba(255,255,255,.06);color:#cbd5e1;lineHeight:1.6;verticalAlign:top">${c}</td>`
+      ).join('') + '</tr>');
+      continue;
+    }
+
+    if (inTable) {
+      html.push('</tbody></table></div>');
+      inTable = false;
+    }
+
+    // Bullet point
+    if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
+      const content = line.trim().slice(2).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html.push(`<div style="display:flex;gap:8px;marginBottom:4px"><span style="color:#475569;flexShrink:0;marginTop:2px">•</span><span style="color:#94a3b8;fontSize:13px;lineHeight:1.7">${content}</span></div>`);
+      continue;
+    }
+
+    // Bold inline
+    const formatted = line.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e2e8f0">$1</strong>');
+    if (formatted.trim()) {
+      html.push(`<p style="color:#94a3b8;fontSize:14px;lineHeight:1.78;marginBottom:8px">${formatted}</p>`);
+    }
+  }
+
+  if (inTable) html.push('</tbody></table></div>');
+  return html.join("\n");
 }
 
 function ScoreBar({ score, color }) {
@@ -601,7 +647,7 @@ export default function Home() {
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
                           <div style={{ background: "#dcfce7", border: "1.5px solid #bbf7d0", borderRadius: "12px 12px 3px 12px", padding: "10px 14px", fontSize: 14, color: "#065f46", lineHeight: 1.6, maxWidth: "80%" }}>{item.q}</div>
                         </div>
-                        <div style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderRadius: "3px 12px 12px 12px", padding: "10px 14px", fontSize: 14, color: "#374151", lineHeight: 1.8, boxShadow: "0 1px 4px rgba(0,0,0,.05)" }}>{item.a}</div>
+                        <div style={{ background: "#ffffff", border: "1.5px solid #e5e7eb", borderRadius: "3px 12px 12px 12px", padding: "10px 14px", fontSize: 14, color: "#374151", lineHeight: 1.8, boxShadow: "0 1px 4px rgba(0,0,0,.05)" }} dangerouslySetInnerHTML={{ __html: renderMarkdown(item.a) }} />
                       </div>
                     ))}
                   </div>
