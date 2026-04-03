@@ -221,6 +221,7 @@ for (const re of [re1, re2, re4]) {
     const index = buildNoteIndex(fullNotes);
 
     console.log(`[DEBUG] ${companyName} note index size: ${index.length}, notesStartIdx: ${notesStartIdx}, item8 length: ${item8Text.length}`);
+    console.log(`[DEBUG] ${companyName} text at notesStart: "${item8Text.slice(notesStartIdx, notesStartIdx + 80).replace(/\n/g, " ")}"`);
     if (index.length < 10) {
       console.log(`[DEBUG] ${companyName} notes found:`, index.map(n => `${n.num}:${n.title.slice(0,40)}`).join(" | "));
     }
@@ -242,8 +243,7 @@ Important rules:
 - The actual revenue FIGURES (disaggregated by product/service/geography) are in a SEPARATE note, often called "Disaggregation of Revenue", "Segment Information", "Geographic Information", or "Revenue".
 - For any revenue-related topic: ALWAYS return both the policy note AND the data/breakdown note as related notes.
 - Some companies embed Revenue Recognition policy inside "Summary of Significant Accounting Policies" (Apple does this) — if so, return that as a related note.
-- "Business Combinations & Acquisitions" means M&A activity — acquisitions of other companies. Look for notes titled "Acquisitions", "Business Acquisitions", "Acquisition of [Company Name]", etc.
-- IMPORTANT: Do NOT select a note about a company's own SPAC merger or reverse merger going-public transaction. Those notes are typically titled "Business Combination" (singular) and describe the company's own IPO process with stock exchanges, warrant conversions, PIPE financing — not acquisitions of other companies. If the only "Business Combination" note is about a SPAC/reverse merger, look for a separate "Acquisitions" note instead.
+- "Business Combinations & Acquisitions" means M&A activity. Look for notes titled "Business Combinations", "Acquisitions", "Business Acquisitions", or similar.
 - "Share-Based Compensation" might be "Stock-Based Compensation" or "Equity Awards".
 - Always return the primary note AND all related notes that contain either policy text OR actual financial data/tables for this topic.
 
