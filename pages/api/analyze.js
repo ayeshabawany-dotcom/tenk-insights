@@ -342,6 +342,8 @@ for (const re of [re1, re2, re4]) {
 
   // ── ACTIONS ──────────────────────────────────────────────────────────────────
 
+  try {
+
   if (action === "compare") {
     // companyA, yearA, companyB, yearB, noteSection already destructured from req.body above
     if (!companyA || !companyB || !noteSection)
@@ -463,4 +465,9 @@ Answer from the filing data only. Be specific with dollar amounts, dates, and te
   }
 
   return res.status(400).json({ error: "Unknown action." });
+
+  } catch (err) {
+    console.error("[ERROR] Unhandled exception:", err.message, err.stack);
+    return res.status(500).json({ error: err.message || "Internal server error" });
+  }
 }
