@@ -226,144 +226,67 @@ for (const re of [re1, re2, re4]) {
 
   // ── Find and extract the relevant note section ─────────────────────────────
   async function findAndExtractNote(item8Text, notesStartIdx, targetNote, companyName) {
+    // Simple, reliable approach: pass the notes text directly to Claude.
+    // Claude reads the actual content and finds the right section regardless of
+    // how it is titled — distinguishing e.g. SPAC "Business Combination" from
+    // M&A "Business Combinations" by reading what the note actually says.
+
     const fullNotes = item8Text.slice(notesStartIdx);
-    const index = buildNoteIndex(fullNotes);
 
-    console.log(`[DEBUG] ${companyName} note index size: ${index.length}, notesStartIdx: ${notesStartIdx}, item8 length: ${item8Text.length}`);
-    console.log(`[DEBUG] ${companyName} text at notesStart: "${item8Text.slice(notesStartIdx, notesStartIdx + 80).replace(/\n/g, " ")}"`);
-    if (index.length < 10) {
-      console.log(`[DEBUG] ${companyName} notes found:`, index.map(n => `${n.num}:${n.title.slice(0,40)}`).join(" | "));
-    }
+    // Send a generous window — enough to cover notes 1 through ~10
+    // Use first 14000 chars to capture early notes like Note 3
+    const notesChunk = fullNotes.slice(0, 14000);
 
-    let resolvedTitle = targetNote;
-    let noteStart = -1;
-    let noteEnd   = -1;
+    console.log(`[DEBUG] ${companyName} notesStartIdx: ${notesStartIdx}, chunk length: ${notesChunk.length}`);
 
-    if (index.length > 0) {
-      // Ask Claude which note(s) cover the target topic
-      const titleList = index.map(n => `Note ${n.num}: ${n.title}`).join("\n");
-      const matchPrompt = `You are a technical accountant. From this list of note titles in ${companyName}'s 10-K, identify ALL notes that contain information about: "${targetNote}"
+    const prompt = `You are a technical accountant reading the Notes to Financial Statements from ${companyName}'s 10-K annual report.
 
-${companyName} note list:
-${titleList}
+Find and extract the note section that covers: "${targetNote}"
 
-Important rules:
-- "Revenue Recognition" is a POLICY note (describes HOW revenue is recognized — timing, performance obligations). It does NOT contain revenue dollar amounts.
-- The actual revenue FIGURES (disaggregated by product/service/geography) are in a SEPARATE note, often called "Disaggregation of Revenue", "Segment Information", "Geographic Information", or "Revenue".
-- For any revenue-related topic: ALWAYS return both the policy note AND the data/breakdown note as related notes.
-- Some companies embed Revenue Recognition policy inside "Summary of Significant Accounting Policies" (Apple does this) — if so, return that as a related note.
-- "Business Combinations & Acquisitions" means M&A activity. Look for notes titled "Business Combinations", "Acquisitions", "Business Acquisitions", or similar.
-- "Share-Based Compensation" might be "Stock-Based Compensation" or "Equity Awards".
-- Always return the primary note AND all related notes that contain either policy text OR actual financial data/tables for this topic.
+Critical distinctions:
+- "Business Combinations & Acquisitions" means acquisitions of OTHER companies (e.g. Amelia AI, SYNQ3). Do NOT select a note about the company's own SPAC merger or reverse recapitalization going-public transaction — those describe how the reporting company itself became public, not acquisitions.
+- "Revenue Recognition" means accounting policy for how revenue is recognized — not revenue figures/tables
+- "Share-Based Compensation" means stock option and RSU expense disclosures
+- Always read the actual content of each note, not just the title
 
-Return ONLY JSON:
+Notes text:
+${notesChunk}
+
+Return ONLY valid JSON:
 {
-  "primaryNote": { "noteNumber": 3, "noteTitle": "exact title" },
-  "relatedNotes": [{ "noteNumber": 1, "noteTitle": "exact title", "reason": "contains revenue recognition policy" }],
-  "confidence": "high/medium/low"
+  "found": true,
+  "resolvedTitle": "Exact note title as written in the filing",
+  "extractedText": "The complete text of that note section verbatim"
 }
-If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "low" }`;
+If not found: { "found": false, "resolvedTitle": null, "extractedText": null }`;
 
-      try {
-        const matchResult = await callClaude(matchPrompt, 400);
-        const matchParsed = extractJSON(matchResult);
-        const primaryNum  = matchParsed.primaryNote?.noteNumber ?? matchParsed.noteNumber ?? null;
-        const relatedNums = (matchParsed.relatedNotes || []).map(n => n.noteNumber).filter(Boolean);
+    try {
+      const result = await callClaude(prompt, 2500);
+      const parsed = extractJSON(result);
 
-        if (primaryNum) {
-          const matched = index.find(n => n.num === Number(primaryNum));
-          if (matched) {
-            resolvedTitle = matched.title;
-            noteStart     = matched.startIdx;
-            const nextNote = index.find(n => n.num > matched.num);
-            noteEnd = nextNote ? nextNote.startIdx : matched.startIdx + 10000;
-
-            // Collect related note texts and concatenate
-            const relatedTexts = [];
-            for (const relNum of relatedNums) {
-              const rel = index.find(n => n.num === Number(relNum));
-              if (rel && rel.num !== matched.num) {
-                const relNext  = index.find(n => n.num > rel.num);
-                const relEnd   = relNext ? relNext.startIdx : rel.startIdx + 8000;
-                const relText  = fullNotes.slice(rel.startIdx, Math.min(relEnd, rel.startIdx + 4000));
-                resolvedTitle += ` + Note ${rel.num}: ${rel.title.slice(0, 50)}`;
-                relatedTexts.push(`\n\n=== Related: Note ${rel.num} — ${rel.title} ===\n${relText}`);
-              }
-            }
-
-            // Return primary note + related notes concatenated
-            if (relatedTexts.length > 0) {
-              const primaryText = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
-              return { text: primaryText + relatedTexts.join(""), resolvedTitle };
-            }
-          } else {
-            console.log(`[DEBUG] ${companyName} index:`, index.map(n => `${n.num}:${n.title}`).join(" | "));
-          }
-        }
-      } catch (e) {
-        console.log(`[DEBUG] matchPrompt error: ${e.message}`);
+      if (parsed.found && parsed.extractedText && parsed.extractedText.length > 100) {
+        console.log(`[DEBUG] ${companyName} found: "${parsed.resolvedTitle}"`);
+        return { text: parsed.extractedText, resolvedTitle: parsed.resolvedTitle };
       }
-    }
 
-    // Fallback: direct keyword search (handles Apple-style filings with small index)
-    const kwList = targetNote.toLowerCase()
-      .replace(/[^a-z\s]/g, "").split(/\s+/)
-      .filter(w => w.length > 4 && !["notes", "financial", "statements", "information", "other"].includes(w));
-
-    let bestIdx = -1;
-    for (const kw of kwList) {
-      const idx = fullNotes.toLowerCase().indexOf(kw);
-      if (idx > 100 && (bestIdx === -1 || idx < bestIdx)) bestIdx = idx;
-    }
-
-    if (bestIdx > 0 && noteStart === -1) {
-      noteStart = Math.max(0, bestIdx - 500);
-      noteEnd   = noteStart + 8000;
-    } else if (index.length < 3 && bestIdx > 0 && noteStart >= 0) {
-      // Small index AND keyword found elsewhere — supplement
-      const kwStart = Math.max(0, bestIdx - 500);
-      if (Math.abs(kwStart - noteStart) > 2000) {
-        const primaryText = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 4000));
-        const kwText = fullNotes.slice(kwStart, kwStart + 5000);
-        return { text: primaryText + "\n\n=== Policy section ===\n" + kwText, resolvedTitle };
-      }
-    } else if (noteStart === -1) {
-      noteStart = 0;
-      noteEnd   = 8000;
-    }
-
-    let extracted = fullNotes.slice(noteStart, Math.min(noteEnd, noteStart + 6000));
-
-    // Safeguard: if prose content is thin, also append Note 1 (Summary of Accounting Policies)
-    const proseOnly = extracted.replace(/\[TABLE\][\s\S]*?\[\/TABLE\]/g, "").trim();
-    console.log(`[DEBUG] ${companyName} extracted length: ${extracted.length}, prose length: ${proseOnly.length}`);
-
-    if (proseOnly.length < 500 && index.length > 0) {
-      const note1 = index.find(n => n.num === 1);
-      if (note1 && note1.startIdx !== noteStart) {
-        const note1Next = index.find(n => n.num > 1);
-        const note1End  = note1Next ? note1Next.startIdx : note1.startIdx + 15000;
-        const note1Full = fullNotes.slice(note1.startIdx, Math.min(note1End, note1.startIdx + 15000));
-        // Search within Note 1 for the specific topic — don't append all of Note 1
-        const kwList2 = targetNote.toLowerCase()
-          .replace(/[^a-z\s]/g, "").split(/\s+/)
-          .filter(w => w.length > 4 && !["notes","financial","statements","information","other","policy"].includes(w));
-        let topicIdx = -1;
-        for (const kw of kwList2) {
-          const idx = note1Full.toLowerCase().indexOf(kw);
-          if (idx > 0 && (topicIdx === -1 || idx < topicIdx)) topicIdx = idx;
-        }
-        if (topicIdx > 0) {
-          // Extract just the relevant section within Note 1 (3000 chars around the topic)
-          const topicStart = Math.max(0, topicIdx - 200);
-          const topicText  = note1Full.slice(topicStart, topicStart + 3000);
-          resolvedTitle += " + Note 1 (policy excerpt)";
-          extracted = extracted + "\n\n=== Revenue Recognition policy from Note 1 ===\n" + topicText;
+      // If not found in first chunk, try a second window further into the notes
+      if (!parsed.found && fullNotes.length > 14000) {
+        console.log(`[DEBUG] ${companyName} not found in first chunk, trying second window`);
+        const chunk2 = fullNotes.slice(10000, 28000);
+        const prompt2 = prompt.replace(notesChunk, chunk2);
+        const result2 = await callClaude(prompt2, 2500);
+        const parsed2 = extractJSON(result2);
+        if (parsed2.found && parsed2.extractedText) {
+          console.log(`[DEBUG] ${companyName} found in second chunk: "${parsed2.resolvedTitle}"`);
+          return { text: parsed2.extractedText, resolvedTitle: parsed2.resolvedTitle };
         }
       }
-    }
 
-    return { text: extracted, resolvedTitle };
+      return { text: null, resolvedTitle: targetNote };
+    } catch (e) {
+      console.log(`[DEBUG] ${companyName} extraction error: ${e.message}`);
+      return { text: null, resolvedTitle: targetNote };
+    }
   }
 
   // ── ACTIONS ────────────────────────────────────────────────────────────────
