@@ -325,7 +325,11 @@ Respond with ONLY valid JSON:
   "keyInsight": "Single most important difference"
 }`;
 
-      const parsed = extractJSON(await callClaude(comparePrompt, 2000));
+      const rawComparison = await callClaude(comparePrompt, 2000);
+      if (!rawComparison || !rawComparison.includes("{")) {
+        throw new Error("Claude did not return a valid response. Please try again.");
+      }
+      const parsed = extractJSON(rawComparison);
       if (!parsed.rows || parsed.rows.length === 0)
         return res.status(500).json({ error: "Could not parse comparison. Please try again." });
 
