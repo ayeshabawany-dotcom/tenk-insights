@@ -225,6 +225,9 @@ export default async function handler(req, res) {
     const index = buildNoteIndex(fullNotes);
 
     console.log(`[DEBUG] ${companyName} note index size: ${index.length}, notesStartIdx: ${notesStartIdx}, item8 length: ${item8Text.length}`);
+    if (index.length < 10) {
+      console.log(`[DEBUG] ${companyName} notes found:`, index.map(n => `${n.num}:${n.title.slice(0,40)}`).join(" | "));
+    }
 
     let resolvedTitle = targetNote;
     let noteStart = -1;
