@@ -503,33 +503,73 @@ Return ONLY valid JSON:
       // Use full notes context if available (broader search), fallback to extracted note
       const rawA = tableData.notesContextA || tableData.rawTextA || "";
       const rawB = tableData.notesContextB || tableData.rawTextB || "";
-      const hasRaw = rawA.length > 100 || rawB.length > 100;
+
+      // Smart context extraction: search for question keywords in the full notes text
+      // instead of always taking the first 6000 chars (which misses late notes)
+      function extractRelevantContext(fullText, q) {
+        if (!fullText || fullText.length < 100) return "";
+        const keywords = q.toLowerCase()
+          .replace(/[^a-z\s]/g, "").split(/\s+/)
+          .filter(w => w.length > 4 && !["give","what","show","tell","much","many","does","have","from","this","that","which","their","about"].includes(w));
+
+        // Find the best keyword hit in the text
+        let bestIdx = -1;
+        let bestKw = "";
+        for (const kw of keywords) {
+          // Search from position 1000 onwards to skip note headers
+          const searchArea = fullText.toLowerCase();
+          let pos = 0;
+          while (pos < searchArea.length) {
+            const found = searchArea.indexOf(kw, pos);
+            if (found === -1) break;
+            // Prefer hits that are near table markers or dollar signs
+            const nearby = fullText.slice(Math.max(0, found - 200), found + 200);
+            const isNearTable = nearby.includes("[TABLE]") || nearby.includes("$") || nearby.includes(" | ");
+            if (isNearTable && (bestIdx === -1 || found < bestIdx)) {
+              bestIdx = found;
+              bestKw = kw;
+              break;
+            }
+            pos = found + 1;
+          }
+        }
+
+        if (bestIdx > 500) {
+          // Extract 6000 chars centered around the best hit
+          const start = Math.max(0, bestIdx - 1000);
+          return fullText.slice(start, start + 6000);
+        }
+        // Fallback: first 6000 chars
+        return fullText.slice(0, 6000);
+      }
+
+      const contextA = extractRelevantContext(rawA, question);
+      const contextB = extractRelevantContext(rawB, question);
+      const hasContext = contextA.length > 100 || contextB.length > 100;
 
       const prompt = `You are a senior financial analyst answering a question about actual SEC 10-K filings.
 
 ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${tableData.meta.note}
 
-${hasRaw ? `=== FULL EXTRACTED FILING TEXT (use this for specific numbers, tables, and details) ===
+${hasContext ? `=== FILING TEXT (most relevant section for your question) ===
 
-${tableData.meta.companyA} filing text:
-${rawA.slice(0, 6000)}
+${tableData.meta.companyA}:
+${contextA}
 
-${tableData.meta.companyB} filing text:
-${rawB.slice(0, 6000)}
+${tableData.meta.companyB}:
+${contextB}
 
-=== COMPARISON SUMMARY TABLE ===` : "=== COMPARISON DATA ==="}
+=== COMPARISON SUMMARY ===` : "=== COMPARISON DATA ==="}
 ${tableText}
-
-Summary: ${tableData.summary || ""}
 
 Question: ${question}
 
 Instructions:
-- Search the full filing text above for specific numbers, tables, and details
-- Tables in the filing text use " | " as column separators
-- If the question asks for revenue by type/product/geography, look for disaggregation tables in the filing text
-- Give a direct, specific answer with actual numbers where available
-- If the data genuinely is not present in any of the above, say so clearly`;
+- Look in the filing text sections above for specific numbers and tables
+- Tables use " | " as column separators between values
+- For revenue by type/product/geography/segment: look for disaggregation tables in the filing text
+- Give a direct answer with actual dollar amounts and figures where available
+- If the data is genuinely not in the provided text, say so clearly`;
       const answer = await callClaude(prompt, 1500);
       return res.status(200).json({ answer: answer.trim() });
     }
