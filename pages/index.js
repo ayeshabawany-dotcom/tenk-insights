@@ -127,7 +127,7 @@ export default function Home() {
 
   // Usage tracking — free tier allows 5 comparisons
   const FREE_LIMIT = 5;
-  const [usageCount, setUsageCount] = React.useState(() => {
+  const [usageCount, setUsageCount] = useState(() => {
     if (typeof window === "undefined") return 0;
     return parseInt(localStorage.getItem("tenk_usage") || "0", 10);
   });
