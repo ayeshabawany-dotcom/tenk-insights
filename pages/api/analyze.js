@@ -308,3 +308,159 @@ for (const re of [re1, re2, re4]) {
       return { text: null, resolvedTitle: targetNote };
     }
   }
+
+
+  // ── Helper: call Claude Haiku ───────────────────────────────────────────────
+  async function callClaude(prompt, maxTokens = 1000) {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!resp.ok) throw new Error(`Anthropic API error: ${resp.status}`);
+    const data = await resp.json();
+    return data.content?.[0]?.text || "";
+  }
+
+  function extractJSON(text) {
+    try {
+      const clean = text.replace(/```json\n?|```/g, "").trim();
+      const start = clean.indexOf("{");
+      const end   = clean.lastIndexOf("}");
+      if (start === -1 || end === -1) throw new Error("No JSON found");
+      return JSON.parse(clean.slice(start, end + 1));
+    } catch { return {}; }
+  }
+
+  // ── ACTIONS ──────────────────────────────────────────────────────────────────
+
+  if (action === "compare") {
+    const { companyA, yearA, companyB, yearB, noteSection } = body;
+    if (!companyA || !companyB || !noteSection)
+      return res.status(400).json({ error: "Missing required fields." });
+
+    const [filingA, filingB] = await Promise.all([
+      findFiling(companyA, yearA),
+      findFiling(companyB, yearB),
+    ]);
+
+    const [item8A, item8B] = await Promise.all([
+      fetchItem8(filingA.url),
+      fetchItem8(filingB.url),
+    ]);
+
+    const startA = findNotesStart(item8A);
+    const startB = findNotesStart(item8B);
+
+    const [extractedA, extractedB] = await Promise.all([
+      findAndExtractNote(item8A, startA, noteSection, filingA.companyName, yearA),
+      findAndExtractNote(item8B, startB, noteSection, filingB.companyName, yearB),
+    ]);
+
+    const trimA = extractedA.text || `[${noteSection} not found in ${filingA.companyName} FY${yearA}]`;
+    const trimB = extractedB.text || `[${noteSection} not found in ${filingB.companyName} FY${yearB}]`;
+
+    const comparePrompt = `You are a senior technical accountant comparing two SEC 10-K filings.
+
+Company A: ${filingA.companyName} (FY${yearA})
+Company B: ${filingB.companyName} (FY${yearB})
+Note Section: ${noteSection}
+
+=== ${filingA.companyName} FY${yearA} ===
+${trimA.slice(0, 5000)}
+
+=== ${filingB.companyName} FY${yearB} ===
+${trimB.slice(0, 5000)}
+
+Compare on 8-10 specific dimensions. Use ONLY information from the filing text above.
+Reference specific dollar amounts, dates, and terms. Note asymmetries explicitly.
+
+Respond with ONLY valid JSON:
+{
+  "rows": [{ "dimension": "Name", "a": "Company A detail", "b": "Company B detail" }],
+  "summary": "2-3 sentence analyst summary",
+  "keyInsight": "Single most important difference"
+}`;
+
+    const parsed = extractJSON(await callClaude(comparePrompt, 2000));
+    if (!parsed.rows || parsed.rows.length === 0)
+      return res.status(500).json({ error: "Could not parse comparison. Please try again." });
+
+    parsed.meta = { companyA: filingA.companyName, companyB: filingB.companyName, yearA, yearB, note: noteSection };
+    parsed.sourceA = filingA.url;
+    parsed.sourceB = filingB.url;
+    parsed.sourceNote = `Section names auto-resolved — ${filingA.companyName}: "${extractedA.resolvedTitle}" · ${filingB.companyName}: "${extractedB.resolvedTitle}"`;
+    parsed.rawTextA = trimA.slice(0, 20000);
+    parsed.rawTextB = trimB.slice(0, 20000);
+    parsed.notesContextA = trimA.slice(0, 20000);
+    parsed.notesContextB = trimB.slice(0, 20000);
+    return res.status(200).json(parsed);
+  }
+
+  if (action === "sentiment") {
+    const { noteSection, tableData } = body;
+    if (!tableData) return res.status(400).json({ error: "Missing data." });
+    const tableText = tableData.rows.map(r =>
+      `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
+    ).join("\n");
+
+    const sentParsed = extractJSON(await callClaude(
+      `Rate disclosure tone for each filing. Respond ONLY with valid JSON:
+{"overallA":"Positive|Neutral|Cautious|Negative","scoreA":7,"summaryA":"2 sentences","overallB":"Positive|Neutral|Cautious|Negative","scoreB":6,"summaryB":"2 sentences","comparison":"1 sentence","redflags":"any red flags or null"}
+
+${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${noteSection}
+${tableText}`, 600));
+    return res.status(200).json({ sentiment: sentParsed });
+  }
+
+  if (action === "ask") {
+    if (!question || !tableData) return res.status(400).json({ error: "Missing question or data." });
+    const tableText = tableData.rows.map(r =>
+      `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`
+    ).join("\n");
+
+    const rawA = tableData.notesContextA || tableData.rawTextA || "";
+    const rawB = tableData.notesContextB || tableData.rawTextB || "";
+
+    function extractRelevantContext(fullText, q) {
+      if (!fullText || fullText.length < 100) return "";
+      const keywords = q.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/)
+        .filter(w => w.length > 4 && !["give","what","show","tell","much","many","does","have","from","this","that","which","their","about"].includes(w));
+      let bestIdx = 0, bestScore = 0;
+      for (let i = 0; i < fullText.length - 500; i += 500) {
+        const score = keywords.filter(kw => fullText.slice(i, i+500).toLowerCase().includes(kw)).length;
+        if (score > bestScore) { bestScore = score; bestIdx = i; }
+      }
+      return fullText.slice(Math.max(0, bestIdx - 200), bestIdx + 4000);
+    }
+
+    const contextA = extractRelevantContext(rawA, question);
+    const contextB = extractRelevantContext(rawB, question);
+    const hasContext = contextA.length > 50 || contextB.length > 50;
+
+    const askResult = await callClaude(
+      `You are a senior financial analyst answering questions about SEC 10-K filings.
+
+${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${tableData.meta.note}
+
+${hasContext ? `=== FILING TEXT ===\n${tableData.meta.companyA}:\n${contextA}\n\n${tableData.meta.companyB}:\n${contextB}\n\n=== COMPARISON SUMMARY ===` : "=== COMPARISON DATA ==="}
+${tableText}
+
+Question: ${question}
+
+Use markdown tables for structured data, bullet points for lists, **bold** for key figures.
+Answer from the filing data only. Be specific with dollar amounts, dates, and terms.`, 1500);
+
+    return res.status(200).json({ answer: askResult });
+  }
+
+  return res.status(400).json({ error: "Unknown action." });
+}
