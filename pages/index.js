@@ -4,7 +4,8 @@ import Head from "next/head";
 const YEARS = Array.from({ length: 11 }, (_, i) => String(2024 - i));
 
 const NOTE_SECTIONS = [
-  "Revenue Recognition",
+  "Revenue Recognition Policy (how revenue is recognized)",
+  "Revenue Breakdown by Product / Segment / Geography (actual figures)",
   "Segment Information",
   "Business Combinations & Acquisitions",
   "Goodwill & Intangible Assets",
