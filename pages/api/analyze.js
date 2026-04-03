@@ -440,6 +440,14 @@ Respond with ONLY valid JSON, no markdown:
       parsed.sourceB    = filingB.url;
       parsed.sourceNote = sourceNote;
       parsed.dataSource = "SEC EDGAR via sec-api.io — actual 10-K filing text";
+      // Store raw extracted text for Q&A (truncated to keep response size reasonable)
+      // Store extracted note text for Q&A (20k chars of the specific note)
+      parsed.rawTextA   = trimA.slice(0, 20000);
+      parsed.rawTextB   = trimB.slice(0, 20000);
+      // Also store broader notes context (40k chars) for Q&A deep search
+      // This ensures tables in adjacent notes are reachable when user asks questions
+      parsed.notesContextA = item8A.slice(startA, startA + 40000);
+      parsed.notesContextB = item8B.slice(startB, startB + 40000);
       return res.status(200).json(parsed);
     }
 
@@ -470,13 +478,39 @@ Return ONLY valid JSON:
     if (action === "ask") {
       if (!question || !tableData) return res.status(400).json({ error: "Missing question or data." });
       const tableText = tableData.rows.map(r => `${r.dimension}: ${tableData.meta.companyA}="${r.a}" | ${tableData.meta.companyB}="${r.b}"`).join("\n");
-      const prompt = `You are a senior financial analyst. Answer based ONLY on the actual 10-K data below.
+
+      // Use raw extracted filing text if available (much richer than summary table)
+      // Use full notes context if available (broader search), fallback to extracted note
+      const rawA = tableData.notesContextA || tableData.rawTextA || "";
+      const rawB = tableData.notesContextB || tableData.rawTextB || "";
+      const hasRaw = rawA.length > 100 || rawB.length > 100;
+
+      const prompt = `You are a senior financial analyst answering a question about actual SEC 10-K filings.
+
 ${tableData.meta.companyA} (${tableData.meta.yearA}) vs ${tableData.meta.companyB} (${tableData.meta.yearB}) — ${tableData.meta.note}
+
+${hasRaw ? `=== FULL EXTRACTED FILING TEXT (use this for specific numbers, tables, and details) ===
+
+${tableData.meta.companyA} filing text:
+${rawA.slice(0, 6000)}
+
+${tableData.meta.companyB} filing text:
+${rawB.slice(0, 6000)}
+
+=== COMPARISON SUMMARY TABLE ===` : "=== COMPARISON DATA ==="}
 ${tableText}
-Summary: ${tableData.summary}
+
+Summary: ${tableData.summary || ""}
+
 Question: ${question}
-Answer in 2-4 sentences. If not in the data, say so explicitly.`;
-      const answer = await callClaude(prompt, 600);
+
+Instructions:
+- Search the full filing text above for specific numbers, tables, and details
+- Tables in the filing text use " | " as column separators
+- If the question asks for revenue by type/product/geography, look for disaggregation tables in the filing text
+- Give a direct, specific answer with actual numbers where available
+- If the data genuinely is not present in any of the above, say so clearly`;
+      const answer = await callClaude(prompt, 1500);
       return res.status(200).json({ answer: answer.trim() });
     }
 
