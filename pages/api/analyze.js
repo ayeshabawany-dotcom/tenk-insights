@@ -276,7 +276,7 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
               if (rel && rel.num !== matched.num) {
                 const relNext  = index.find(n => n.num > rel.num);
                 const relEnd   = relNext ? relNext.startIdx : rel.startIdx + 8000;
-                const relText  = fullNotes.slice(rel.startIdx, Math.min(relEnd, rel.startIdx + 6000));
+                const relText  = fullNotes.slice(rel.startIdx, Math.min(relEnd, rel.startIdx + 4000));
                 resolvedTitle += ` + Note ${rel.num}: ${rel.title.slice(0, 50)}`;
                 relatedTexts.push(`\n\n=== Related: Note ${rel.num} — ${rel.title} ===\n${relText}`);
               }
@@ -333,10 +333,24 @@ If nothing matches: { "primaryNote": null, "relatedNotes": [], "confidence": "lo
       const note1 = index.find(n => n.num === 1);
       if (note1 && note1.startIdx !== noteStart) {
         const note1Next = index.find(n => n.num > 1);
-        const note1End  = note1Next ? note1Next.startIdx : note1.startIdx + 8000;
-        const note1Text = fullNotes.slice(note1.startIdx, Math.min(note1End, note1.startIdx + 6000));
-        resolvedTitle += " + Note 1: Summary of Significant Accounting Policies";
-        extracted = extracted + "\n\n=== Note 1: Summary of Significant Accounting Policies ===\n" + note1Text;
+        const note1End  = note1Next ? note1Next.startIdx : note1.startIdx + 15000;
+        const note1Full = fullNotes.slice(note1.startIdx, Math.min(note1End, note1.startIdx + 15000));
+        // Search within Note 1 for the specific topic — don't append all of Note 1
+        const kwList2 = targetNote.toLowerCase()
+          .replace(/[^a-z\s]/g, "").split(/\s+/)
+          .filter(w => w.length > 4 && !["notes","financial","statements","information","other","policy"].includes(w));
+        let topicIdx = -1;
+        for (const kw of kwList2) {
+          const idx = note1Full.toLowerCase().indexOf(kw);
+          if (idx > 0 && (topicIdx === -1 || idx < topicIdx)) topicIdx = idx;
+        }
+        if (topicIdx > 0) {
+          // Extract just the relevant section within Note 1 (3000 chars around the topic)
+          const topicStart = Math.max(0, topicIdx - 200);
+          const topicText  = note1Full.slice(topicStart, topicStart + 3000);
+          resolvedTitle += " + Note 1 (policy excerpt)";
+          extracted = extracted + "\n\n=== Revenue Recognition policy from Note 1 ===\n" + topicText;
+        }
       }
     }
 
@@ -389,6 +403,7 @@ ${trimB.slice(0, 5000)}
 
 Instructions:
 - Compare these two disclosures on 8-10 specific dimensions
+- IMPORTANT: Stay strictly focused on "${noteSection}" — do NOT include dimensions about income taxes, leases, asset useful lives, or other topics unless they are directly part of this note
 - Use ONLY information present in the filing text above
 - Tables appear between [TABLE] and [/TABLE] markers with columns separated by " | " — READ THESE for actual numbers
 - REQUIRED: If revenue breakdown tables exist (by product, segment, geography, customer), extract ALL figures as dedicated rows
