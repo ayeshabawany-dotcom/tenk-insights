@@ -92,6 +92,9 @@ export default async function handler(req, res) {
 
       const hits = (data.hits && data.hits.hits) ? data.hits.hits.slice(0, 20) : [];
 
+      // Log first hit _source to see actual EDGAR field names
+      if (hits.length > 0) console.log("[DEBUG] EDGAR _source:", JSON.stringify(hits[0]._source || {}));
+
       const results = hits.map(function(hit) {
         const src = hit._source || {};
 
@@ -122,7 +125,7 @@ export default async function handler(req, res) {
 
         return {
           id: hit._id || accNo || Math.random().toString(36).slice(2),
-          companyName: src.entity_name || "Unknown",
+          companyName: src.entity_name || src.company_name || src.name || src.display_names || (src.displayNames && src.displayNames[0]) || "Unknown",
           ticker: src.ticker || "",
           filedAt: src.file_date || "",
           period: src.period_of_report || "",
