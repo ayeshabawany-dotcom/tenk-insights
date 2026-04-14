@@ -965,7 +965,13 @@ export default function Home() {
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
-                      {r.edgarLink && (
+                      {r.filingLink && (
+                        <a href={r.filingLink} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", border: "1.5px solid #bfdbfe", borderRadius: 6, padding: "5px 10px", textDecoration: "none", background: "#eff6ff" }}>
+                          View 8-K ↗
+                        </a>
+                      )}
+                      {!r.filingLink && r.edgarLink && (
                         <a href={r.edgarLink} target="_blank" rel="noopener noreferrer"
                           style={{ fontSize: 11, color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "5px 10px", textDecoration: "none", background: "#f9fafb" }}>
                           EDGAR ↗
