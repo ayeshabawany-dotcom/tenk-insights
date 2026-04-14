@@ -67,24 +67,38 @@ export default async function handler(req, res) {
       if (looksNatural) {
         try {
           const rewritePrompt =
-            "You are an expert at SEC EDGAR full-text search syntax.\n\n" +
-            "Convert the user search intent into an EDGAR keyword query.\n\n" +
-            "EDGAR uses Lucene-style syntax: quoted phrases for exact matches, space = AND.\n" +
-            "Goal: find 8-K filings where the EVENT actually occurred, not filings that merely mention the topic.\n\n" +
+            "You are a CPA and SEC filing expert with deep knowledge of US GAAP and SEC disclosure rules.\n\n" +
+            "Convert the user search intent into an EDGAR 8-K full-text search query.\n\n" +
+            "EDGAR uses Lucene-style syntax: quoted phrases for exact matches, space = AND.\n\n" +
+            "CRITICAL ACCOUNTING DISTINCTIONS you must apply:\n" +
+            "- ASSET ACQUISITION (ASC 805-50): Company buys specific assets (IP, contracts, customer lists, equipment). \n" +
+            "  NO goodwill. NO subsidiary formed. Language: \"asset purchase agreement\", \"acquired certain assets\", \"does not constitute a business\"\n" +
+            "- BUSINESS COMBINATION (ASC 805-10): Company acquires another entity or business. \n" +
+            "  Goodwill recognized. Language: \"merger agreement\", \"acquisition of all outstanding shares\", \"acquired [Company Name]\", \"subsidiary\"\n" +
+            "- These are MUTUALLY EXCLUSIVE. Never mix phrases from both categories.\n\n" +
+            "More distinctions:\n" +
+            "- LICENSE AGREEMENT: Company licenses IP/technology, does not own it. Language: \"license agreement\", \"royalty\", \"sublicense\"\n" +
+            "- ASSET SALE (divestiture): Company is the seller. Language: \"sold certain assets\", \"divestiture\", \"purchase and sale agreement\"\n\n" +
             "Rules:\n" +
-            "- Use 2-4 short quoted phrases that appear ONLY when the event actually happened\n" +
-            "- Use announcement/narrative language, not boilerplate\n" +
-            "- Output ONLY the query string, nothing else\n\n" +
+            "- Use 2-4 quoted phrases that ONLY appear when the specific event actually happened\n" +
+            "- Pick phrases from the narrative/announcement section of 8-Ks, not boilerplate\n" +
+            "- Output ONLY the query string, nothing else, no explanation\n\n" +
             "Examples:\n" +
             "Input: company acquired customer relationships as an asset\n" +
-            "Output: \"asset purchase\" \"customer relationships\" \"purchase price\"\n\n" +
+            "Output: \"asset purchase agreement\" \"customer relationships\" \"does not constitute a business\"\n\n" +
+            "Input: company acquired customer contracts\n" +
+            "Output: \"asset purchase agreement\" \"customer contracts\" \"assumed liabilities\"\n\n" +
+            "Input: company acquired another company\n" +
+            "Output: \"merger agreement\" \"aggregate consideration\" \"outstanding shares\"\n\n" +
+            "Input: company licensed technology\n" +
+            "Output: \"license agreement\" \"royalty\" \"intellectual property\"\n\n" +
             "Input: CEO resigned suddenly\n" +
             "Output: \"resigned\" \"effective\" \"chief executive\"\n\n" +
             "Input: company raised debt financing\n" +
             "Output: \"credit facility\" \"aggregate principal\" \"borrowings\"\n\n" +
             "Input: data breach affecting customers\n" +
             "Output: \"unauthorized access\" \"personal information\" \"cybersecurity incident\"\n\n" +
-            "Now convert this input:\n" +
+            "Now convert this input (apply the correct accounting category):\n" +
             keywords.trim();
 
           const rewritten = await callClaude(rewritePrompt, 120);
@@ -254,20 +268,29 @@ export default async function handler(req, res) {
       console.log("[DEBUG] Fetched 8-K for", companyName, ":", text.length, "chars from", fetchedFrom);
 
       const summary = await callClaude(
-        "You are a financial analyst summarizing an SEC 8-K filing for investors.\n\n" +
+        "You are a CPA and senior financial analyst summarizing an SEC 8-K filing. You have deep knowledge of US GAAP, ASC 805, and SEC disclosure requirements.\n\n" +
         "Company: " + (companyName || "Unknown") + "\n" +
         "Filed: " + (filedAt || "Unknown") + "\n" +
-        "Search keywords that surfaced this filing: \"" + (keywords || "") + "\"\n\n" +
+        "User was searching for: \"" + (keywords || "") + "\"\n\n" +
         "8-K Filing text:\n" +
         text.slice(0, 8000) + "\n\n" +
-        "Provide a clear, structured summary:\n\n" +
-        "**What happened:** (1-2 sentences on the event type and core disclosure)\n\n" +
+        "Provide a structured summary using ONLY facts from the filing text above:\n\n" +
+        "**Transaction type:** State exactly what kind of event this is. Apply these GAAP distinctions precisely:\n" +
+        "- Asset Acquisition (ASC 805-50): acquires specific assets, no goodwill, no entity acquired\n" +
+        "- Business Combination (ASC 805): acquires a business or entity, goodwill likely, subsidiary formed\n" +
+        "- License Agreement: rights to use IP/technology, no ownership transfer\n" +
+        "- Divestiture/Asset Sale: company is selling, not buying\n" +
+        "- Other (specify): financing, executive change, legal matter, etc.\n\n" +
+        "**Relevance to search:** Does this filing actually match what the user searched for (\"" + (keywords || "") + "\")? \n" +
+        "State YES or NO clearly, and explain why in one sentence. Flag if it is a different transaction type than what was searched.\n\n" +
+        "**What happened:** 1-2 sentences stating the core event using precise accounting/legal language.\n\n" +
         "**Key details:**\n" +
-        "- [Specific facts, numbers, dates from the filing]\n" +
-        "- [Continue for all material details]\n\n" +
-        "**Why it matters:** (1-2 sentences on investor significance)\n\n" +
-        "Be specific. Use exact figures and dates from the filing. If information seems missing, note it.",
-        1200
+        "- [Specific assets, entities, dollar amounts, dates from the filing]\n" +
+        "- [Any consideration paid: cash, stock, earnouts]\n" +
+        "- [Material terms or conditions]\n\n" +
+        "**Why it matters:** 1-2 sentences on investor/accounting significance.\n\n" +
+        "Be precise. Never infer transaction type from company name or context — only from the filing text. If the filing text is ambiguous, say so.",
+        1400
       );
 
       return res.status(200).json({ summary, sourceUrl: fetchedFrom });
