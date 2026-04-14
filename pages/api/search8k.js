@@ -174,6 +174,12 @@ export default async function handler(req, res) {
           })
           .filter(function(s) { return s.length > 20; });
 
+        // Direct link to this specific filing index page
+        const filingLink = entityId && accNoClean && accNo
+          ? "https://www.sec.gov/Archives/edgar/data/" + entityId + "/" + accNoClean + "/" + accNo + "-index.htm"
+          : "";
+
+        // Fallback: company filing list (less useful but always works)
         const edgarLink = entityId
           ? "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" + entityId + "&type=8-K&dateb=&owner=include&count=10"
           : "";
@@ -188,6 +194,7 @@ export default async function handler(req, res) {
           accessionNo: accNo,
           cik: entityId,
           accNoClean,
+          filingLink,
           edgarLink,
           snippets,
         };
