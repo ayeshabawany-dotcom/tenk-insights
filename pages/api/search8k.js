@@ -58,7 +58,48 @@ export default async function handler(req, res) {
       if (!keywords || !keywords.trim())
         return res.status(400).json({ error: "Keywords required." });
 
-      let url = "https://efts.sec.gov/LATEST/search-index?q=" + encodeURIComponent(keywords.trim()) + "&forms=8-K";
+      // ── Claude query rewriter ────────────────────────────────────────────
+      // If input looks like natural language, rewrite to EDGAR phrase syntax
+      let searchQuery = keywords.trim();
+      let queryRewritten = false;
+      const looksNatural = !keywords.includes('"') && !keywords.includes(" AND ") && !keywords.includes(" OR ") && keywords.trim().split(/\s+/).length > 2;
+
+      if (looksNatural) {
+        try {
+          const rewritePrompt =
+            "You are an expert at SEC EDGAR full-text search syntax.\n\n" +
+            "Convert the user search intent into an EDGAR keyword query.\n\n" +
+            "EDGAR uses Lucene-style syntax: quoted phrases for exact matches, space = AND.\n" +
+            "Goal: find 8-K filings where the EVENT actually occurred, not filings that merely mention the topic.\n\n" +
+            "Rules:\n" +
+            "- Use 2-4 short quoted phrases that appear ONLY when the event actually happened\n" +
+            "- Use announcement/narrative language, not boilerplate\n" +
+            "- Output ONLY the query string, nothing else\n\n" +
+            "Examples:\n" +
+            "Input: company acquired customer relationships as an asset\n" +
+            "Output: \"asset purchase\" \"customer relationships\" \"purchase price\"\n\n" +
+            "Input: CEO resigned suddenly\n" +
+            "Output: \"resigned\" \"effective\" \"chief executive\"\n\n" +
+            "Input: company raised debt financing\n" +
+            "Output: \"credit facility\" \"aggregate principal\" \"borrowings\"\n\n" +
+            "Input: data breach affecting customers\n" +
+            "Output: \"unauthorized access\" \"personal information\" \"cybersecurity incident\"\n\n" +
+            "Now convert this input:\n" +
+            keywords.trim();
+
+          const rewritten = await callClaude(rewritePrompt, 120);
+          const cleaned = rewritten.trim().replace(/^["`]|["`]$/g, "").trim();
+          if (cleaned && cleaned.length > 3 && cleaned.length < 300) {
+            console.log("[DEBUG] Query rewrite: \"" + keywords.trim() + "\" → " + cleaned);
+            searchQuery = cleaned;
+            queryRewritten = true;
+          }
+        } catch (e) {
+          console.log("[DEBUG] Query rewrite failed, using original:", e.message);
+        }
+      }
+
+      let url = "https://efts.sec.gov/LATEST/search-index?q=" + encodeURIComponent(searchQuery) + "&forms=8-K";
       if (startDate || endDate) {
         url += "&dateRange=custom";
         if (startDate) url += "&startdt=" + startDate;
@@ -139,7 +180,7 @@ export default async function handler(req, res) {
       });
 
       const total = (data.hits && data.hits.total) ? (data.hits.total.value || data.hits.total || 0) : 0;
-      return res.status(200).json({ results, total });
+      return res.status(200).json({ results, total, searchQuery, queryRewritten });
     }
 
     // ── SUMMARIZE ────────────────────────────────────────────────────────────
