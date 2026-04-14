@@ -202,54 +202,81 @@ export default async function handler(req, res) {
 
       const total = (data.hits && data.hits.total) ? (data.hits.total.value || data.hits.total || 0) : 0;
 
-      // ── Relevance filter ──────────────────────────────────────────────────
-      // Ask Claude to score each result YES/NO against the original user intent.
-      // Uses only the snippet text — no extra filing fetches. Fast and cheap.
-      // Only runs if there are snippets to judge; results with no snippets pass through.
+      // ── Relevance filter using real filing text ───────────────────────────
+      // Snippets are too short to determine transaction type reliably.
+      // Instead: fetch first 3000 chars of actual filing for each candidate
+      // in parallel, then run ONE Claude call to filter with real text.
+      // Cap at 8 candidates to keep parallel fetches fast (<5s total).
       let filteredResults = results;
-      if (results.length > 0 && keywords.trim()) {
+      const candidates = results.slice(0, 8);
+
+      async function fetchFilingPreview(r) {
         try {
-          const snippetBlock = results.map(function(r, i) {
-            const snipText = r.snippets.join(" … ") || "(no snippet available)";
-            return (i + 1) + ". Company: " + r.companyName + " | Filed: " + r.filedAt + "\nSnippet: " + snipText;
-          }).join("\n\n");
-
-          const filterPrompt =
-            "You are a CPA with deep knowledge of US GAAP and SEC 8-K disclosure rules.\n\n" +
-            "The user searched for: \"" + keywords.trim() + "\"\n" +
-            "The EDGAR query used was: " + searchQuery + "\n\n" +
-            "Below are " + results.length + " 8-K filing snippets returned by EDGAR keyword search.\n" +
-            "For each filing, decide if it is RELEVANT to what the user actually searched for.\n\n" +
-            "Apply strict accounting distinctions:\n" +
-            "- An \"asset acquisition\" means buying specific assets (IP, contracts, customer lists). NOT acquiring a company/subsidiary.\n" +
-            "- A \"business combination\" means acquiring an entity. Different transaction type entirely.\n" +
-            "- A \"license agreement\" means rights to use assets, not ownership. Different from acquisition.\n" +
-            "- A \"divestiture\" means selling, not buying.\n\n" +
-            "If the snippet clearly describes a different transaction type than what was searched, mark it NO.\n" +
-            "If the snippet is ambiguous but plausibly relevant, mark it YES.\n" +
-            "If there is no snippet, mark it YES (give benefit of the doubt).\n\n" +
-            "Respond with ONLY a JSON array of numbers — the 1-based indexes of the RELEVANT results.\n" +
-            "Example: [1, 3, 5]\n\n" +
-            "Filings to evaluate:\n" +
-            snippetBlock;
-
-          const filterResp = await callClaude(filterPrompt, 300);
-          const cleaned = filterResp.replace(/```json|```/g, "").trim();
-          const start = cleaned.indexOf("[");
-          const end = cleaned.lastIndexOf("]");
-          if (start !== -1 && end !== -1) {
-            const keepIndexes = JSON.parse(cleaned.slice(start, end + 1));
-            if (Array.isArray(keepIndexes) && keepIndexes.length > 0) {
-              filteredResults = keepIndexes
-                .filter(function(i) { return typeof i === "number" && i >= 1 && i <= results.length; })
-                .map(function(i) { return results[i - 1]; });
-              console.log("[DEBUG] Relevance filter: kept " + filteredResults.length + " of " + results.length + " results");
-            }
+          if (!r.cik || !r.accNoClean || !r.accessionNo) return { r, preview: "" };
+          const indexUrl = "https://www.sec.gov/Archives/edgar/data/" + r.cik + "/" + r.accNoClean + "/" + r.accessionNo + "-index.htm";
+          const indexResp = await fetch(indexUrl, { headers: { "User-Agent": "10KCompare research@10kcompare.app" } });
+          if (!indexResp.ok) return { r, preview: "" };
+          const indexHtml = await indexResp.text();
+          const linkMatches = indexHtml.matchAll(/href="(\/Archives\/edgar\/data\/[^"]+\.htm)"/gi);
+          const links = [];
+          for (const m of linkMatches) {
+            if (!m[1].includes("-index")) links.push("https://www.sec.gov" + m[1]);
           }
+          if (links.length === 0) return { r, preview: "" };
+          const docResp = await fetch(links[0], { headers: { "User-Agent": "10KCompare research@10kcompare.app" } });
+          if (!docResp.ok) return { r, preview: "" };
+          const buf = await docResp.arrayBuffer();
+          const raw = new TextDecoder().decode(buf.slice ? buf.slice(0, 500000) : buf);
+          const plain = stripHtml(raw).slice(0, 3000);
+          return { r, preview: plain };
         } catch (e) {
-          console.log("[DEBUG] Relevance filter failed, showing all results:", e.message);
-          filteredResults = results;
+          return { r, preview: "" };
         }
+      }
+
+      try {
+        const previews = await Promise.all(candidates.map(fetchFilingPreview));
+
+        const filingBlock = previews.map(function(p, i) {
+          return (i + 1) + ". Company: " + p.r.companyName + " | Filed: " + p.r.filedAt + "\n" +
+            "Text: " + (p.preview || p.r.snippets.join(" … ") || "(unavailable)");
+        }).join("\n\n---\n\n");
+
+        const filterPrompt =
+          "You are a CPA with deep knowledge of US GAAP (ASC 805) and SEC 8-K disclosure rules.\n\n" +
+          "The user searched for: \"" + keywords.trim() + "\"\n\n" +
+          "Below are " + candidates.length + " 8-K filings. Read the text of each and decide if it actually matches what the user was looking for.\n\n" +
+          "Apply these STRICT accounting distinctions:\n" +
+          "- ASSET ACQUISITION (ASC 805-50): buys specific named assets (IP, contracts, customer lists, equipment). No goodwill. No entity acquired. Filing says things like \"asset purchase agreement\", \"acquired certain assets\", \"does not constitute a business\".\n" +
+          "- BUSINESS COMBINATION (ASC 805-10): acquires another company or entity. Goodwill likely. Filing says \"merger agreement\", \"acquired [Company Name]\", \"all outstanding shares\", \"subsidiary\".\n" +
+          "- LICENSE: rights to use, not ownership. Filing says \"license agreement\", \"royalty\", \"sublicense\".\n" +
+          "- DIVESTITURE: company is the seller not buyer.\n\n" +
+          "If the filing is a different transaction type than searched, return NO.\n" +
+          "If genuinely ambiguous, return YES.\n" +
+          "If text is unavailable, return YES.\n\n" +
+          "Return ONLY a JSON array of the 1-based indexes of RELEVANT filings. Example: [1, 3, 4]\n\n" +
+          filingBlock;
+
+        const filterResp = await callClaude(filterPrompt, 400);
+        const cleaned = filterResp.replace(/```json|```/g, "").trim();
+        const start = cleaned.indexOf("[");
+        const end = cleaned.lastIndexOf("]");
+        if (start !== -1 && end !== -1) {
+          const keepIndexes = JSON.parse(cleaned.slice(start, end + 1));
+          if (Array.isArray(keepIndexes) && keepIndexes.length > 0) {
+            filteredResults = keepIndexes
+              .filter(function(i) { return typeof i === "number" && i >= 1 && i <= candidates.length; })
+              .map(function(i) { return candidates[i - 1]; });
+            console.log("[DEBUG] Relevance filter: kept " + filteredResults.length + " of " + candidates.length);
+          } else {
+            filteredResults = candidates;
+          }
+        } else {
+          filteredResults = candidates;
+        }
+      } catch (e) {
+        console.log("[DEBUG] Relevance filter failed, using candidates:", e.message);
+        filteredResults = candidates;
       }
 
       return res.status(200).json({ results: filteredResults, total, searchQuery, queryRewritten });
