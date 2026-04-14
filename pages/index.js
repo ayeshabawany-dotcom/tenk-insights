@@ -160,6 +160,8 @@ export default function Home() {
   const [searchResults, setSearchResults]   = useState([]);
   const [searchTotal, setSearchTotal]       = useState(0);
   const [searchErrMsg, setSearchErrMsg]     = useState("");
+  const [rewrittenQuery, setRewrittenQuery] = useState("");
+  const [queryRewritten, setQueryRewritten] = useState(false);
   const [expandedResults, setExpandedResults] = useState({});
 
   // ── 10-K Compare functions ─────────────────────────────────────────────────
@@ -239,6 +241,8 @@ export default function Home() {
     setSearchResults([]);
     setExpandedResults({});
     setSearchErrMsg("");
+    setRewrittenQuery("");
+    setQueryRewritten(false);
     try {
       const resp = await fetch("/api/search8k", {
         method: "POST",
@@ -255,6 +259,8 @@ export default function Home() {
       if (!resp.ok) throw new Error(data.error || "Search failed");
       setSearchResults(data.results || []);
       setSearchTotal(data.total || 0);
+      setRewrittenQuery(data.searchQuery || searchKeywords);
+      setQueryRewritten(data.queryRewritten || false);
       setSearchPhase("done");
     } catch (e) {
       setSearchErrMsg(e.message);
@@ -922,6 +928,12 @@ export default function Home() {
                     <span style={{ color: "#6b7280" }}> of {searchTotal.toLocaleString()} filings matching </span>
                   )}
                   {searchTotal > 0 && <span style={{ color: "#b45309", fontWeight: 600 }}>{searchKeywords}</span>}
+                </div>
+                {queryRewritten && (
+                  <div style={{ fontSize: 11, background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 6, padding: "5px 12px", color: "#92400e", display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontWeight: 700 }}>✦ Query rewritten:</span>
+                    <code style={{ fontFamily: "monospace", color: "#b45309" }}>{rewrittenQuery}</code>
+                  </div>
                 </div>
                 {searchResults.length === 0 && (
                   <div style={{ fontSize: 12, color: "#6b7280" }}>Try broader keywords or a wider date range</div>
