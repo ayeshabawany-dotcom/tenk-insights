@@ -201,7 +201,58 @@ export default async function handler(req, res) {
       });
 
       const total = (data.hits && data.hits.total) ? (data.hits.total.value || data.hits.total || 0) : 0;
-      return res.status(200).json({ results, total, searchQuery, queryRewritten });
+
+      // ── Relevance filter ──────────────────────────────────────────────────
+      // Ask Claude to score each result YES/NO against the original user intent.
+      // Uses only the snippet text — no extra filing fetches. Fast and cheap.
+      // Only runs if there are snippets to judge; results with no snippets pass through.
+      let filteredResults = results;
+      if (results.length > 0 && keywords.trim()) {
+        try {
+          const snippetBlock = results.map(function(r, i) {
+            const snipText = r.snippets.join(" … ") || "(no snippet available)";
+            return (i + 1) + ". Company: " + r.companyName + " | Filed: " + r.filedAt + "\nSnippet: " + snipText;
+          }).join("\n\n");
+
+          const filterPrompt =
+            "You are a CPA with deep knowledge of US GAAP and SEC 8-K disclosure rules.\n\n" +
+            "The user searched for: \"" + keywords.trim() + "\"\n" +
+            "The EDGAR query used was: " + searchQuery + "\n\n" +
+            "Below are " + results.length + " 8-K filing snippets returned by EDGAR keyword search.\n" +
+            "For each filing, decide if it is RELEVANT to what the user actually searched for.\n\n" +
+            "Apply strict accounting distinctions:\n" +
+            "- An \"asset acquisition\" means buying specific assets (IP, contracts, customer lists). NOT acquiring a company/subsidiary.\n" +
+            "- A \"business combination\" means acquiring an entity. Different transaction type entirely.\n" +
+            "- A \"license agreement\" means rights to use assets, not ownership. Different from acquisition.\n" +
+            "- A \"divestiture\" means selling, not buying.\n\n" +
+            "If the snippet clearly describes a different transaction type than what was searched, mark it NO.\n" +
+            "If the snippet is ambiguous but plausibly relevant, mark it YES.\n" +
+            "If there is no snippet, mark it YES (give benefit of the doubt).\n\n" +
+            "Respond with ONLY a JSON array of numbers — the 1-based indexes of the RELEVANT results.\n" +
+            "Example: [1, 3, 5]\n\n" +
+            "Filings to evaluate:\n" +
+            snippetBlock;
+
+          const filterResp = await callClaude(filterPrompt, 300);
+          const cleaned = filterResp.replace(/```json|```/g, "").trim();
+          const start = cleaned.indexOf("[");
+          const end = cleaned.lastIndexOf("]");
+          if (start !== -1 && end !== -1) {
+            const keepIndexes = JSON.parse(cleaned.slice(start, end + 1));
+            if (Array.isArray(keepIndexes) && keepIndexes.length > 0) {
+              filteredResults = keepIndexes
+                .filter(function(i) { return typeof i === "number" && i >= 1 && i <= results.length; })
+                .map(function(i) { return results[i - 1]; });
+              console.log("[DEBUG] Relevance filter: kept " + filteredResults.length + " of " + results.length + " results");
+            }
+          }
+        } catch (e) {
+          console.log("[DEBUG] Relevance filter failed, showing all results:", e.message);
+          filteredResults = results;
+        }
+      }
+
+      return res.status(200).json({ results: filteredResults, total, searchQuery, queryRewritten });
     }
 
     // ── SUMMARIZE ────────────────────────────────────────────────────────────
