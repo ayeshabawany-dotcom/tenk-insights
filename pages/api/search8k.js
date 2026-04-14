@@ -94,9 +94,18 @@ export default async function handler(req, res) {
 
       const results = hits.map(function(hit) {
         const src = hit._source || {};
+
+        // Accession number: prefer _source field, fall back to _id (EDGAR uses _id as accession no)
         const accNo = src.accession_no || hit._id || "";
-        const entityId = src.entity_id || src.cik || "";
         const accNoClean = accNo.replace(/-/g, "");
+
+        // CIK: try _source fields first, then derive from accession number prefix
+        // Accession numbers are formatted 0001234567-YY-NNNNNN — first segment is zero-padded CIK
+        let entityId = src.entity_id || src.cik || "";
+        if (!entityId && accNo) {
+          const firstSegment = accNo.split("-")[0];
+          if (firstSegment) entityId = String(parseInt(firstSegment, 10));
+        }
 
         // Extract highlight snippets — strip <em> tags, keep surrounding text
         const hlValues = Object.values(hit.highlight || {}).flat();
