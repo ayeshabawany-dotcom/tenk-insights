@@ -934,16 +934,15 @@ export default function Home() {
                     <span style={{ fontWeight: 700 }}>✦ Query rewritten:</span>
                     <code style={{ fontFamily: "monospace", color: "#b45309" }}>{rewrittenQuery}</code>
                   </div>
-                </div>
-                {searchResults.length === 0 && (
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>Try broader keywords or a wider date range</div>
-                )}
-                {searchTotal > 20 && (
-                  <div style={{ fontSize: 11, color: "#9ca3af" }}>Showing top 20 · Refine to narrow results</div>
                 )}
               </div>
             )}
-
+            {searchPhase === "done" && searchResults.length === 0 && (
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16 }}>Try broader keywords or a wider date range</div>
+            )}
+            {searchPhase === "done" && searchTotal > 20 && (
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 16 }}>Showing top 20 · Refine to narrow results</div>
+            )}
             {/* ── Result cards ─────────────────────────────────────────── */}
             {searchPhase === "done" && searchResults.map((r, i) => {
               const summaryState = expandedResults[r.id];
